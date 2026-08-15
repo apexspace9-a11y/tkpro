@@ -355,7 +355,7 @@ private fun V4UnlockScreen(biometric: Boolean, onUnlock: (String) -> Unit, onBio
 private fun v4DestinationIcon(destination: V4Destination) = when (destination) {
     V4Destination.HOME -> Icons.Default.Home
     V4Destination.TRANSACTIONS -> Icons.Default.ReceiptLong
-    V4Destination.PLAN -> Icons.Default.Target
+    V4Destination.PLAN -> Icons.Default.Flag
     V4Destination.MORE -> Icons.Default.GridView
     V4Destination.ACCOUNTS -> Icons.Default.AccountBalanceWallet
     V4Destination.ANALYTICS -> Icons.Default.Insights
