@@ -9,23 +9,23 @@ import androidx.biometric.BiometricPrompt
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
-import vn.tietkiem.pro.ui.AppViewModel
-import vn.tietkiem.pro.ui.v3.V3AppRoot
+import vn.tietkiem.pro.ui.v4.V4AppRoot
+import vn.tietkiem.pro.ui.v4.V4ViewModel
 
 class MainActivity : FragmentActivity() {
-    private val vm: AppViewModel by lazy {
+    private val vm: V4ViewModel by lazy {
         ViewModelProvider(this, object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                AppViewModel(application as TietKiemProApplication) as T
-        })[AppViewModel::class.java]
+                V4ViewModel(application as TietKiemProApplication) as T
+        })[V4ViewModel::class.java]
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        setContent { V3AppRoot(vm = vm, onBiometricRequest = { authenticate() }) }
+        setContent { V4AppRoot(vm = vm, onBiometricRequest = { authenticate() }) }
     }
 
     override fun onStop() {
@@ -49,7 +49,7 @@ class MainActivity : FragmentActivity() {
         ).authenticate(
             BiometricPrompt.PromptInfo.Builder()
                 .setTitle("Mở Tiết Kiệm Pro")
-                .setSubtitle("Xác thực để truy cập dữ liệu tài chính")
+                .setSubtitle("Xác thực để truy cập tài khoản")
                 .setAllowedAuthenticators(authenticators)
                 .build()
         )
