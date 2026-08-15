@@ -11,30 +11,33 @@ import java.util.Locale
 class BackupManager(private val context: Context, private val db: AppDatabase) {
     private val dao = db.financeDao()
 
+    suspend fun exportJson(): String = buildSnapshot().toString()
+
     suspend fun exportTo(uri: Uri) {
-        val root = JSONObject().apply {
-            put("schemaVersion", 2)
-            put("exportedAt", System.currentTimeMillis())
-            put("accounts", JSONArray().apply { dao.getAccounts().forEach { put(it.toJson()) } })
-            put("categories", JSONArray().apply { dao.getCategories().forEach { put(it.toJson()) } })
-            put("transactions", JSONArray().apply { dao.getTransactions().forEach { put(it.toJson()) } })
-            put("budgets", JSONArray().apply { dao.getBudgets().forEach { put(it.toJson()) } })
-            put("goals", JSONArray().apply { dao.getGoals().forEach { put(it.toJson()) } })
-            put("debts", JSONArray().apply { dao.getDebts().forEach { put(it.toJson()) } })
-            put("recurring", JSONArray().apply { dao.getRecurring().forEach { put(it.toJson()) } })
-            put("payees", JSONArray().apply { dao.getPayees().forEach { put(it.toJson()) } })
-            put("tags", JSONArray().apply { dao.getTags().forEach { put(it.toJson()) } })
-            put("transactionMeta", JSONArray().apply { dao.getTransactionMeta().forEach { put(it.toJson()) } })
-            put("transactionTags", JSONArray().apply { dao.getTransactionTags().forEach { put(it.toJson()) } })
-            put("transactionSplits", JSONArray().apply { dao.getTransactionSplits().forEach { put(it.toJson()) } })
-            put("budgetConfigs", JSONArray().apply { dao.getBudgetConfigs().forEach { put(it.toJson()) } })
-            put("goalContributions", JSONArray().apply { dao.getGoalContributions().forEach { put(it.toJson()) } })
-            put("goalLinks", JSONArray().apply { dao.getGoalLinks().forEach { put(it.toJson()) } })
-            put("debtPayments", JSONArray().apply { dao.getDebtPayments().forEach { put(it.toJson()) } })
-            put("accountSnapshots", JSONArray().apply { dao.getAccountSnapshots().forEach { put(it.toJson()) } })
-            put("premiumPayments", JSONArray().apply { dao.getPremiumPayments().forEach { put(it.toJson()) } })
-        }
-        context.contentResolver.openOutputStream(uri, "wt")!!.bufferedWriter().use { it.write(root.toString()) }
+        context.contentResolver.openOutputStream(uri, "wt")!!.bufferedWriter().use { it.write(exportJson()) }
+    }
+
+    private suspend fun buildSnapshot(): JSONObject = JSONObject().apply {
+        put("schemaVersion", 2)
+        put("exportedAt", System.currentTimeMillis())
+        put("accounts", JSONArray().apply { dao.getAccounts().forEach { put(it.toJson()) } })
+        put("categories", JSONArray().apply { dao.getCategories().forEach { put(it.toJson()) } })
+        put("transactions", JSONArray().apply { dao.getTransactions().forEach { put(it.toJson()) } })
+        put("budgets", JSONArray().apply { dao.getBudgets().forEach { put(it.toJson()) } })
+        put("goals", JSONArray().apply { dao.getGoals().forEach { put(it.toJson()) } })
+        put("debts", JSONArray().apply { dao.getDebts().forEach { put(it.toJson()) } })
+        put("recurring", JSONArray().apply { dao.getRecurring().forEach { put(it.toJson()) } })
+        put("payees", JSONArray().apply { dao.getPayees().forEach { put(it.toJson()) } })
+        put("tags", JSONArray().apply { dao.getTags().forEach { put(it.toJson()) } })
+        put("transactionMeta", JSONArray().apply { dao.getTransactionMeta().forEach { put(it.toJson()) } })
+        put("transactionTags", JSONArray().apply { dao.getTransactionTags().forEach { put(it.toJson()) } })
+        put("transactionSplits", JSONArray().apply { dao.getTransactionSplits().forEach { put(it.toJson()) } })
+        put("budgetConfigs", JSONArray().apply { dao.getBudgetConfigs().forEach { put(it.toJson()) } })
+        put("goalContributions", JSONArray().apply { dao.getGoalContributions().forEach { put(it.toJson()) } })
+        put("goalLinks", JSONArray().apply { dao.getGoalLinks().forEach { put(it.toJson()) } })
+        put("debtPayments", JSONArray().apply { dao.getDebtPayments().forEach { put(it.toJson()) } })
+        put("accountSnapshots", JSONArray().apply { dao.getAccountSnapshots().forEach { put(it.toJson()) } })
+        put("premiumPayments", JSONArray().apply { dao.getPremiumPayments().forEach { put(it.toJson()) } })
     }
 
     suspend fun exportTransactionsCsv(uri: Uri) {
@@ -73,6 +76,10 @@ class BackupManager(private val context: Context, private val db: AppDatabase) {
 
     suspend fun importFrom(uri: Uri) {
         val text = context.contentResolver.openInputStream(uri)!!.bufferedReader().use { it.readText() }
+        importJson(text)
+    }
+
+    suspend fun importJson(text: String) {
         val root = JSONObject(text)
         val version = root.getInt("schemaVersion")
         require(version in 1..2) { "Phiên bản bản sao lưu không được hỗ trợ" }
