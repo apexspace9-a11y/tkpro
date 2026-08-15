@@ -18,3 +18,4 @@
 - compileSdk / targetSdk 36
 - Kotlin + Jetpack Compose + Room
 - Hoạt động offline; backup JSON và CSV do người dùng chủ động xuất.
+- CI: GitHub Actions build APK trực tiếp từ nhánh `main`.
