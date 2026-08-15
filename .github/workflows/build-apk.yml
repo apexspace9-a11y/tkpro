@@ -39,14 +39,14 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
-      - name: Reassemble UI source
+      - name: Reassemble legacy UI source
         run: cat app/src/main/java/vn/tietkiem/pro/ui/AppRoot.part.* > app/src/main/java/vn/tietkiem/pro/ui/AppRoot.kt
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
       - name: Upload APK
         uses: actions/upload-artifact@v7
         with:
-          name: TietKiemPro-V2.apk
+          name: TietKiemPro-V3.apk
           path: app/build/outputs/apk/debug/app-debug.apk
           archive: false
           if-no-files-found: error
