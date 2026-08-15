@@ -5,6 +5,8 @@ import android.net.Uri
 import androidx.room.withTransaction
 import org.json.JSONArray
 import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 class BackupManager(private val context: Context, private val db: AppDatabase) {
     private val dao = db.financeDao()
@@ -32,6 +34,36 @@ class BackupManager(private val context: Context, private val db: AppDatabase) {
         context.contentResolver.openOutputStream(uri, "wt")!!.bufferedWriter().use { it.write(root.toString()) }
     }
 
+    suspend fun exportTransactionsCsv(uri: Uri) {
+        val accountMap = dao.getAccounts().associateBy { it.id }
+        val categoryMap = dao.getCategories().associateBy { it.id }
+        val transactions = dao.getTransactions().sortedWith(compareByDescending<TransactionEntity> { it.occurredAt }.thenByDescending { it.id })
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+
+        context.contentResolver.openOutputStream(uri, "wt")!!.bufferedWriter().use { writer ->
+            writer.appendLine("id,type,amount,account,to_account,category,note,occurred_at")
+            transactions.forEach { tx ->
+                val typeLabel = when (tx.type) {
+                    TransactionType.INCOME.name -> "Thu"
+                    TransactionType.EXPENSE.name -> "Chi"
+                    TransactionType.TRANSFER.name -> "Chuyển"
+                    else -> tx.type
+                }
+                val row = listOf(
+                    tx.id.toString(),
+                    typeLabel,
+                    tx.amount.toString(),
+                    accountMap[tx.accountId]?.name.orEmpty(),
+                    tx.toAccountId?.let { accountMap[it]?.name }.orEmpty(),
+                    tx.categoryId?.let { categoryMap[it]?.name }.orEmpty(),
+                    tx.note,
+                    dateFormat.format(tx.occurredAt)
+                ).joinToString(",") { csvCell(it) }
+                writer.appendLine(row)
+            }
+        }
+    }
+
     suspend fun importFrom(uri: Uri) {
         val text = context.contentResolver.openInputStream(uri)!!.bufferedReader().use { it.readText() }
         val root = JSONObject(text)
@@ -56,6 +88,8 @@ class BackupManager(private val context: Context, private val db: AppDatabase) {
             dao.insertRecurringRaw(recurring)
         }
     }
+
+    private fun csvCell(value: String): String = "\"${value.replace("\"", "\"\"")}\""
 
     private fun <T> JSONArray.mapObjects(mapper: (JSONObject) -> T): List<T> =
         (0 until length()).map { mapper(getJSONObject(it)) }
