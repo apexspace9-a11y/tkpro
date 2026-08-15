@@ -110,9 +110,9 @@ private fun MainApp(vm: AppViewModel, settings: AppSettings, onBiometricRequest:
         Box(Modifier.fillMaxSize().padding(padding)) {
             when (tab) {
                 MainTab.DASHBOARD -> DashboardScreen(vm)
-                MainTab.TRANSACTIONS -> TransactionsScreen(vm)
+                MainTab.TRANSACTIONS -> V2TransactionsScreen(vm)
                 MainTab.PLANS -> PlansScreen(vm)
-                MainTab.ANALYTICS -> AnalyticsScreen(vm)
+                MainTab.ANALYTICS -> V2InsightsScreen(vm)
                 MainTab.SETTINGS -> SettingsScreen(vm, settings, onBiometricRequest)
             }
         }
