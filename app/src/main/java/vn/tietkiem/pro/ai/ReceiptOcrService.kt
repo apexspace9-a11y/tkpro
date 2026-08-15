@@ -1,14 +1,16 @@
 package vn.tietkiem.pro.ai
 
+import android.content.Context
 import android.graphics.Bitmap
+import android.net.Uri
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
-import kotlinx.coroutines.suspendCancellableCoroutine
 
- data class ReceiptScanResult(
+data class ReceiptScanResult(
     val rawText: String,
     val merchant: String,
     val amount: Long,
@@ -16,9 +18,13 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 )
 
 class ReceiptOcrService {
-    suspend fun recognize(bitmap: Bitmap): ReceiptScanResult = suspendCancellableCoroutine { cont ->
+    suspend fun recognize(bitmap: Bitmap): ReceiptScanResult = process(InputImage.fromBitmap(bitmap, 0))
+
+    suspend fun recognize(context: Context, uri: Uri): ReceiptScanResult =
+        process(InputImage.fromFilePath(context, uri))
+
+    private suspend fun process(image: InputImage): ReceiptScanResult = suspendCancellableCoroutine { cont ->
         val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-        val image = InputImage.fromBitmap(bitmap, 0)
         recognizer.process(image)
             .addOnSuccessListener { result ->
                 val text = result.text.trim()
