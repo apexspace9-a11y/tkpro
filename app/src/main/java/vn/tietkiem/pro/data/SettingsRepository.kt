@@ -34,11 +34,14 @@ data class AppSettings(
     val bankAccount: String = "",
     val bankOwner: String = "",
     val plusPrice: Long = 49_000L,
-    val proPrice: Long = 99_000L
+    val proPrice: Long = 99_000L,
+    val serverUrl: String = "",
+    val cloudEmail: String = ""
 ) {
     val hasPin: Boolean get() = pinSalt.isNotBlank() && pinHash.isNotBlank()
     val hasAdminKey: Boolean get() = adminSalt.isNotBlank() && adminHash.isNotBlank()
     val premiumActive: Boolean get() = premiumTier != PremiumTier.FREE.name && (premiumExpiry == 0L || premiumExpiry > System.currentTimeMillis())
+    val cloudConfigured: Boolean get() = serverUrl.isNotBlank() && cloudEmail.isNotBlank()
 }
 
 class SettingsRepository(private val context: Context) {
@@ -64,6 +67,8 @@ class SettingsRepository(private val context: Context) {
         val BANK_OWNER = stringPreferencesKey("bank_owner")
         val PLUS_PRICE = longPreferencesKey("plus_price")
         val PRO_PRICE = longPreferencesKey("pro_price")
+        val SERVER_URL = stringPreferencesKey("server_url_v4")
+        val CLOUD_EMAIL = stringPreferencesKey("cloud_email_v4")
     }
 
     val settings: Flow<AppSettings> = context.settingsStore.data.map { prefs ->
@@ -86,41 +91,31 @@ class SettingsRepository(private val context: Context) {
             bankAccount = prefs[Keys.BANK_ACCOUNT] ?: "",
             bankOwner = prefs[Keys.BANK_OWNER] ?: "",
             plusPrice = prefs[Keys.PLUS_PRICE] ?: 49_000L,
-            proPrice = prefs[Keys.PRO_PRICE] ?: 99_000L
+            proPrice = prefs[Keys.PRO_PRICE] ?: 99_000L,
+            serverUrl = prefs[Keys.SERVER_URL] ?: "",
+            cloudEmail = prefs[Keys.CLOUD_EMAIL] ?: ""
         )
     }
 
-    suspend fun setTheme(value: String) {
-        context.settingsStore.edit { it[Keys.THEME] = value }
-    }
+    suspend fun setTheme(value: String) { context.settingsStore.edit { it[Keys.THEME] = value } }
 
     suspend fun setPin(pin: String) {
         val (salt, hash) = PinSecurity.create(pin)
-        context.settingsStore.edit {
-            it[Keys.PIN_SALT] = salt
-            it[Keys.PIN_HASH] = hash
-        }
+        context.settingsStore.edit { it[Keys.PIN_SALT] = salt; it[Keys.PIN_HASH] = hash }
     }
 
     suspend fun clearPin() {
         context.settingsStore.edit {
-            it.remove(Keys.PIN_SALT)
-            it.remove(Keys.PIN_HASH)
-            it[Keys.BIOMETRIC] = false
+            it.remove(Keys.PIN_SALT); it.remove(Keys.PIN_HASH); it[Keys.BIOMETRIC] = false
         }
     }
 
-    suspend fun setBiometric(enabled: Boolean) {
-        context.settingsStore.edit { it[Keys.BIOMETRIC] = enabled }
-    }
+    suspend fun setBiometric(enabled: Boolean) { context.settingsStore.edit { it[Keys.BIOMETRIC] = enabled } }
 
     suspend fun setAdminKey(value: String) {
         require(value.length >= 6) { "Khóa admin cần ít nhất 6 ký tự" }
         val (salt, hash) = PinSecurity.create(value)
-        context.settingsStore.edit {
-            it[Keys.ADMIN_SALT] = salt
-            it[Keys.ADMIN_HASH] = hash
-        }
+        context.settingsStore.edit { it[Keys.ADMIN_SALT] = salt; it[Keys.ADMIN_HASH] = hash }
     }
 
     suspend fun verifyAdminKey(value: String): Boolean {
@@ -128,13 +123,8 @@ class SettingsRepository(private val context: Context) {
         return current.hasAdminKey && PinSecurity.verify(value, current.adminSalt, current.adminHash)
     }
 
-    suspend fun setNotifications(enabled: Boolean) {
-        context.settingsStore.edit { it[Keys.NOTIFICATIONS] = enabled }
-    }
-
-    suspend fun setPrivacyMode(enabled: Boolean) {
-        context.settingsStore.edit { it[Keys.PRIVACY_MODE] = enabled }
-    }
+    suspend fun setNotifications(enabled: Boolean) { context.settingsStore.edit { it[Keys.NOTIFICATIONS] = enabled } }
+    suspend fun setPrivacyMode(enabled: Boolean) { context.settingsStore.edit { it[Keys.PRIVACY_MODE] = enabled } }
 
     suspend fun setAiConfig(endpoint: String, model: String, systemPrompt: String, includeFinance: Boolean) {
         context.settingsStore.edit {
@@ -145,20 +135,14 @@ class SettingsRepository(private val context: Context) {
         }
     }
 
-    fun setAiApiKey(value: String) {
-        secrets.put(SecureSecretStore.AI_API_KEY, value.trim())
-    }
-
+    fun setAiApiKey(value: String) { secrets.put(SecureSecretStore.AI_API_KEY, value.trim()) }
     fun getAiApiKey(): String = secrets.get(SecureSecretStore.AI_API_KEY)
 
     suspend fun setBankConfig(name: String, account: String, owner: String, plusPrice: Long, proPrice: Long) {
         require(plusPrice >= 0 && proPrice >= 0) { "Giá gói không hợp lệ" }
         context.settingsStore.edit {
-            it[Keys.BANK_NAME] = name.trim()
-            it[Keys.BANK_ACCOUNT] = account.trim()
-            it[Keys.BANK_OWNER] = owner.trim()
-            it[Keys.PLUS_PRICE] = plusPrice
-            it[Keys.PRO_PRICE] = proPrice
+            it[Keys.BANK_NAME] = name.trim(); it[Keys.BANK_ACCOUNT] = account.trim(); it[Keys.BANK_OWNER] = owner.trim()
+            it[Keys.PLUS_PRICE] = plusPrice; it[Keys.PRO_PRICE] = proPrice
         }
     }
 
@@ -172,9 +156,52 @@ class SettingsRepository(private val context: Context) {
     }
 
     suspend fun deactivatePremium() {
+        context.settingsStore.edit { it[Keys.PREMIUM_TIER] = PremiumTier.FREE.name; it[Keys.PREMIUM_EXPIRY] = 0L }
+    }
+
+    suspend fun saveCloudSession(serverUrl: String, email: String, token: String) {
+        val normalized = serverUrl.trim().trimEnd('/')
+        require(normalized.startsWith("https://") || normalized.startsWith("http://")) { "Địa chỉ server không hợp lệ" }
+        require(email.isNotBlank()) { "Email không được trống" }
+        secrets.put(SecureSecretStore.CLOUD_ACCESS_TOKEN, token)
         context.settingsStore.edit {
-            it[Keys.PREMIUM_TIER] = PremiumTier.FREE.name
-            it[Keys.PREMIUM_EXPIRY] = 0L
+            it[Keys.SERVER_URL] = normalized
+            it[Keys.CLOUD_EMAIL] = email.trim().lowercase()
+        }
+    }
+
+    suspend fun setServerUrl(serverUrl: String) {
+        val normalized = serverUrl.trim().trimEnd('/')
+        require(normalized.startsWith("https://") || normalized.startsWith("http://")) { "Địa chỉ server không hợp lệ" }
+        context.settingsStore.edit { it[Keys.SERVER_URL] = normalized }
+    }
+
+    fun cloudToken(): String = secrets.get(SecureSecretStore.CLOUD_ACCESS_TOKEN)
+
+    suspend fun clearCloudSession() {
+        secrets.remove(SecureSecretStore.CLOUD_ACCESS_TOKEN)
+        secrets.remove(SecureSecretStore.SERVER_ADMIN_KEY)
+        context.settingsStore.edit { it.remove(Keys.CLOUD_EMAIL) }
+    }
+
+    fun saveServerAdminKey(value: String) { secrets.put(SecureSecretStore.SERVER_ADMIN_KEY, value) }
+    fun serverAdminKey(): String = secrets.get(SecureSecretStore.SERVER_ADMIN_KEY)
+    fun clearServerAdminKey() { secrets.remove(SecureSecretStore.SERVER_ADMIN_KEY) }
+
+    suspend fun applyRemoteProfile(tier: String, expiry: Long) {
+        context.settingsStore.edit {
+            it[Keys.PREMIUM_TIER] = tier
+            it[Keys.PREMIUM_EXPIRY] = expiry
+        }
+    }
+
+    suspend fun applyPublicConfig(bank: String, account: String, owner: String, plusPrice: Long, proPrice: Long) {
+        context.settingsStore.edit {
+            it[Keys.BANK_NAME] = bank
+            it[Keys.BANK_ACCOUNT] = account
+            it[Keys.BANK_OWNER] = owner
+            it[Keys.PLUS_PRICE] = plusPrice
+            it[Keys.PRO_PRICE] = proPrice
         }
     }
 }
