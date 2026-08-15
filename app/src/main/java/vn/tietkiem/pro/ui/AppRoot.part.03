@@ -11,7 +11,7 @@
             HorizontalDivider()
         }
         item { SectionTitle("Ứng dụng") }
-        item { ListItem(headlineContent = { Text("Tiết Kiệm Pro") }, supportingContent = { Text("V1 Pro • 1.0.0") }) }
+        item { ListItem(headlineContent = { Text("Tiết Kiệm Pro") }, supportingContent = { Text("V2 Pro • 2.0.0") }) }
     }
 
     if (showPin) PinDialog(onDismiss = { showPin = false }) { pin, confirm -> vm.setPin(pin, confirm); showPin = false }
