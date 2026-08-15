@@ -3,7 +3,7 @@ name: Build APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [ main, v4-upgrade ]
 
 jobs:
   build:
@@ -46,7 +46,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v7
         with:
-          name: TietKiemPro-V3.apk
+          name: TietKiemPro-V4.apk
           path: app/build/outputs/apk/debug/app-debug.apk
           archive: false
           if-no-files-found: error
