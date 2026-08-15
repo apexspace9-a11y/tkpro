@@ -36,7 +36,8 @@ data class AppSettings(
     val plusPrice: Long = 49_000L,
     val proPrice: Long = 99_000L,
     val serverUrl: String = "",
-    val cloudEmail: String = ""
+    val cloudEmail: String = "",
+    val cloudDirty: Boolean = false
 ) {
     val hasPin: Boolean get() = pinSalt.isNotBlank() && pinHash.isNotBlank()
     val hasAdminKey: Boolean get() = adminSalt.isNotBlank() && adminHash.isNotBlank()
@@ -69,6 +70,7 @@ class SettingsRepository(private val context: Context) {
         val PRO_PRICE = longPreferencesKey("pro_price")
         val SERVER_URL = stringPreferencesKey("server_url_v4")
         val CLOUD_EMAIL = stringPreferencesKey("cloud_email_v4")
+        val CLOUD_DIRTY = booleanPreferencesKey("cloud_dirty_v4")
     }
 
     val settings: Flow<AppSettings> = context.settingsStore.data.map { prefs ->
@@ -93,7 +95,8 @@ class SettingsRepository(private val context: Context) {
             plusPrice = prefs[Keys.PLUS_PRICE] ?: 49_000L,
             proPrice = prefs[Keys.PRO_PRICE] ?: 99_000L,
             serverUrl = prefs[Keys.SERVER_URL] ?: "",
-            cloudEmail = prefs[Keys.CLOUD_EMAIL] ?: ""
+            cloudEmail = prefs[Keys.CLOUD_EMAIL] ?: "",
+            cloudDirty = prefs[Keys.CLOUD_DIRTY] ?: false
         )
     }
 
@@ -181,8 +184,13 @@ class SettingsRepository(private val context: Context) {
     suspend fun clearCloudSession() {
         secrets.remove(SecureSecretStore.CLOUD_ACCESS_TOKEN)
         secrets.remove(SecureSecretStore.SERVER_ADMIN_KEY)
-        context.settingsStore.edit { it.remove(Keys.CLOUD_EMAIL) }
+        context.settingsStore.edit {
+            it.remove(Keys.CLOUD_EMAIL)
+            it[Keys.CLOUD_DIRTY] = false
+        }
     }
+
+    suspend fun setCloudDirty(value: Boolean) { context.settingsStore.edit { it[Keys.CLOUD_DIRTY] = value } }
 
     fun saveServerAdminKey(value: String) { secrets.put(SecureSecretStore.SERVER_ADMIN_KEY, value) }
     fun serverAdminKey(): String = secrets.get(SecureSecretStore.SERVER_ADMIN_KEY)
