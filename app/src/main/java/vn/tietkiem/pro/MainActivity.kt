@@ -3,13 +3,14 @@ package vn.tietkiem.pro
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
-import vn.tietkiem.pro.ui.AppRoot
 import vn.tietkiem.pro.ui.AppViewModel
+import vn.tietkiem.pro.ui.v3.V3AppRoot
 
 class MainActivity : FragmentActivity() {
     private val vm: AppViewModel by lazy {
@@ -22,8 +23,9 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        setContent { AppRoot(vm = vm, onBiometricRequest = { authenticate() }) }
+        setContent { V3AppRoot(vm = vm, onBiometricRequest = { authenticate() }) }
     }
 
     override fun onStop() {
