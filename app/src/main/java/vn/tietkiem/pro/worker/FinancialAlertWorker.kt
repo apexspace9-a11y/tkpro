@@ -18,12 +18,11 @@ import vn.tietkiem.pro.data.DebtType
 import vn.tietkiem.pro.data.SettingsRepository
 import vn.tietkiem.pro.data.TransactionType
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 object FinanceNotifications {
-    const val CHANNEL_ID = "finance_alerts_v3"
+    const val CHANNEL_ID = "finance_alerts_v4"
 
     fun createChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -34,10 +33,31 @@ object FinanceNotifications {
                     "Cảnh báo tài chính",
                     NotificationManager.IMPORTANCE_DEFAULT
                 ).apply {
-                    description = "Ngân sách, nợ, mục tiêu và lịch tài chính"
+                    description = "Ngân sách, nợ, mục tiêu, đồng bộ và lịch tài chính"
                 }
             )
         }
+    }
+
+    fun canNotify(context: Context): Boolean =
+        Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+
+    fun sendTest(context: Context): Boolean {
+        if (!canNotify(context)) return false
+        createChannel(context)
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Tiết Kiệm Pro V4")
+            .setContentText("Thông báo thử nghiệm hoạt động bình thường")
+            .setStyle(NotificationCompat.BigTextStyle().bigText("Thông báo thử nghiệm hoạt động bình thường. Cảnh báo tài chính sẽ xuất hiện qua kênh này."))
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .build()
+        NotificationManagerCompat.from(context).notify(4004, notification)
+        return true
     }
 }
 
@@ -48,10 +68,7 @@ class FinancialAlertWorker(
 
     override suspend fun doWork(): Result {
         val settings = SettingsRepository(applicationContext).settings.first()
-        if (!settings.notificationsEnabled) return Result.success()
-        if (Build.VERSION.SDK_INT >= 33 &&
-            ContextCompat.checkSelfPermission(applicationContext, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) return Result.success()
+        if (!settings.notificationsEnabled || !FinanceNotifications.canNotify(applicationContext)) return Result.success()
 
         val dao = AppDatabase.get(applicationContext).financeDao()
         val now = System.currentTimeMillis()
