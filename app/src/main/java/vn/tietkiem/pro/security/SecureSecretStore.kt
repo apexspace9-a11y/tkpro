@@ -64,5 +64,7 @@ class SecureSecretStore(context: Context) {
 
     companion object {
         const val AI_API_KEY = "ai_api_key"
+        const val CLOUD_ACCESS_TOKEN = "cloud_access_token"
+        const val SERVER_ADMIN_KEY = "server_admin_key"
     }
 }
