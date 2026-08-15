@@ -228,7 +228,7 @@ private fun V4GoalPane(vm: V4ViewModel, settings: AppSettings) {
         }
         ExtendedFloatingActionButton(
             onClick = { creating = true },
-            Modifier.align(Alignment.BottomEnd).padding(20.dp),
+            modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
             icon = { Icon(Icons.Default.Add, null) },
             text = { Text("Mục tiêu") }
         )
@@ -348,7 +348,7 @@ private fun V4DebtPane(vm: V4ViewModel, settings: AppSettings) {
         }
         ExtendedFloatingActionButton(
             onClick = { creating = true },
-            Modifier.align(Alignment.BottomEnd).padding(20.dp),
+            modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
             icon = { Icon(Icons.Default.Add, null) },
             text = { Text("Khoản nợ") }
         )
@@ -477,7 +477,7 @@ private fun V4RecurringPane(vm: V4ViewModel, settings: AppSettings) {
         }
         ExtendedFloatingActionButton(
             onClick = { creating = true },
-            Modifier.align(Alignment.BottomEnd).padding(20.dp),
+            modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
             icon = { Icon(Icons.Default.Add, null) },
             text = { Text("Định kỳ") }
         )
