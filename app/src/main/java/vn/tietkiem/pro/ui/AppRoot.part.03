@@ -1,0 +1,190 @@
+            }
+        }
+        items(categories, key = { "settings-category-${it.id}" }) { category ->
+            ListItem(
+                headlineContent = { Text(category.name) },
+                supportingContent = { Text(if (category.type == CategoryType.EXPENSE.name) "Chi tiêu" else "Thu nhập") },
+                leadingContent = { Icon(Icons.Default.Category, null) },
+                trailingContent = { Icon(Icons.Default.Edit, null) },
+                modifier = Modifier.clickable { categoryEditor = category }
+            )
+            HorizontalDivider()
+        }
+        item { SectionTitle("Ứng dụng") }
+        item { ListItem(headlineContent = { Text("Tiết Kiệm Pro") }, supportingContent = { Text("V1 Pro • 1.0.0") }) }
+    }
+
+    if (showPin) PinDialog(onDismiss = { showPin = false }) { pin, confirm -> vm.setPin(pin, confirm); showPin = false }
+    if (creatingCategory || categoryEditor != null) {
+        CategoryDialog(
+            item = categoryEditor,
+            onDismiss = { creatingCategory = false; categoryEditor = null },
+            onSave = { vm.saveCategory(it); creatingCategory = false; categoryEditor = null },
+            onDelete = categoryEditor?.let { category -> { vm.deleteCategory(category); categoryEditor = null } }
+        )
+    }
+    importUri?.let { uri ->
+        AlertDialog(
+            onDismissRequest = { importUri = null },
+            title = { Text("Khôi phục dữ liệu?") },
+            text = { Text("Dữ liệu tài chính hiện tại sẽ được thay bằng nội dung trong bản sao lưu.") },
+            confirmButton = { TextButton(onClick = { vm.importBackup(uri); importUri = null }) { Text("Khôi phục") } },
+            dismissButton = { TextButton(onClick = { importUri = null }) { Text("Hủy") } }
+        )
+    }
+}
+
+@Composable
+private fun SectionTitle(text: String, modifier: Modifier = Modifier, action: String? = null) {
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Text(text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        if (action != null) Text(action, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+    }
+}
+
+@Composable
+private fun EmptyState(text: String) {
+    Box(Modifier.fillMaxWidth().padding(28.dp), contentAlignment = Alignment.Center) { Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+}
+
+@Composable
+private fun AccountDialog(item: AccountEntity?, onDismiss: () -> Unit, onSave: (AccountEntity) -> Unit, onArchive: (() -> Unit)?) {
+    var name by remember(item) { mutableStateOf(item?.name.orEmpty()) }
+    var balance by remember(item) { mutableStateOf(item?.balance?.toString().orEmpty()) }
+    var type by remember(item) { mutableStateOf(item?.type ?: AccountType.CASH.name) }
+    EditorDialog(
+        title = if (item == null) "Thêm ví" else "Sửa ví",
+        onDismiss = onDismiss,
+        onSave = { onSave(item?.copy(name = name.trim(), type = type, balance = parseMoney(balance)) ?: AccountEntity(name = name.trim(), type = type, balance = parseMoney(balance))) },
+        saveEnabled = name.isNotBlank(),
+        extraAction = if (item != null && onArchive != null) ({ TextButton(onClick = onArchive) { Text(if (item.archived) "Khôi phục" else "Ẩn ví") } }) else null
+    ) {
+        OutlinedTextField(name, { name = it }, label = { Text("Tên ví") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        MoneyField(balance, { balance = it }, "Số dư hiện tại")
+        ChoiceField("Loại ví", type, AccountType.entries.map { it.name to accountTypeLabel(it.name) }, onSelected = { type = it })
+    }
+}
+
+@Composable
+private fun CategoryDialog(
+    item: CategoryEntity?,
+    onDismiss: () -> Unit,
+    onSave: (CategoryEntity) -> Unit,
+    onDelete: (() -> Unit)?
+) {
+    var name by remember(item) { mutableStateOf(item?.name.orEmpty()) }
+    var type by remember(item) { mutableStateOf(item?.type ?: CategoryType.EXPENSE.name) }
+    EditorDialog(
+        title = if (item == null) "Thêm danh mục" else "Sửa danh mục",
+        onDismiss = onDismiss,
+        onSave = {
+            onSave(
+                item?.copy(name = name.trim(), type = type)
+                    ?: CategoryEntity(name = name.trim(), type = type, icon = "category", sortOrder = 100)
+            )
+        },
+        saveEnabled = name.isNotBlank(),
+        extraAction = onDelete?.let { action -> { TextButton(onClick = action) { Icon(Icons.Default.Delete, null); Text("Xóa") } } }
+    ) {
+        OutlinedTextField(name, { name = it }, label = { Text("Tên danh mục") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FilterChip(selected = type == CategoryType.EXPENSE.name, onClick = { type = CategoryType.EXPENSE.name }, label = { Text("Chi tiêu") })
+            FilterChip(selected = type == CategoryType.INCOME.name, onClick = { type = CategoryType.INCOME.name }, label = { Text("Thu nhập") })
+        }
+    }
+}
+
+@Composable
+private fun TransactionDialog(
+    item: TransactionEntity?,
+    accounts: List<AccountEntity>,
+    categories: List<CategoryEntity>,
+    onDismiss: () -> Unit,
+    onSave: (TransactionEntity) -> Unit,
+    onDelete: (() -> Unit)?
+) {
+    var type by remember(item) { mutableStateOf(item?.type ?: TransactionType.EXPENSE.name) }
+    var amount by remember(item) { mutableStateOf(item?.amount?.toString().orEmpty()) }
+    var accountId by remember(item, accounts) { mutableLongStateOf(item?.accountId ?: accounts.firstOrNull()?.id ?: 0L) }
+    var toAccountId by remember(item, accounts) { mutableStateOf(item?.toAccountId ?: accounts.firstOrNull { it.id != accountId }?.id) }
+    var categoryId by remember(item, categories, type) { mutableStateOf(item?.categoryId ?: categories.firstOrNull { it.type == type }?.id) }
+    var note by remember(item) { mutableStateOf(item?.note.orEmpty()) }
+    var date by remember(item) { mutableStateOf(dateOnly(item?.occurredAt ?: System.currentTimeMillis())) }
+
+    LaunchedEffect(type) {
+        if (type == TransactionType.TRANSFER.name) categoryId = null
+        else if (categories.none { it.id == categoryId && it.type == type }) categoryId = categories.firstOrNull { it.type == type }?.id
+    }
+    LaunchedEffect(accountId) {
+        if (toAccountId == accountId) toAccountId = accounts.firstOrNull { it.id != accountId }?.id
+    }
+
+    EditorDialog(
+        title = if (item == null) "Thêm giao dịch" else "Sửa giao dịch",
+        onDismiss = onDismiss,
+        onSave = {
+            val occurredAt = parseDate(date) ?: System.currentTimeMillis()
+            onSave(
+                item?.copy(type = type, amount = parseMoney(amount), accountId = accountId, toAccountId = if (type == TransactionType.TRANSFER.name) toAccountId else null, categoryId = if (type == TransactionType.TRANSFER.name) null else categoryId, note = note.trim(), occurredAt = occurredAt)
+                    ?: TransactionEntity(type = type, amount = parseMoney(amount), accountId = accountId, toAccountId = if (type == TransactionType.TRANSFER.name) toAccountId else null, categoryId = if (type == TransactionType.TRANSFER.name) null else categoryId, note = note.trim(), occurredAt = occurredAt)
+            )
+        },
+        saveEnabled = parseMoney(amount) > 0 && accountId > 0 && (type != TransactionType.TRANSFER.name || (toAccountId != null && toAccountId != accountId)),
+        extraAction = onDelete?.let { action -> { TextButton(onClick = action) { Icon(Icons.Default.Delete, null); Text("Xóa") } } }
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(TransactionType.EXPENSE.name to "Chi", TransactionType.INCOME.name to "Thu", TransactionType.TRANSFER.name to "Chuyển").forEach { (value, label) ->
+                FilterChip(selected = type == value, onClick = { type = value }, label = { Text(label) })
+            }
+        }
+        MoneyField(amount, { amount = it }, "Số tiền")
+        ChoiceField("Ví", accountId, accounts.map { it.id to it.name }, onSelected = { accountId = it })
+        if (type == TransactionType.TRANSFER.name) {
+            ChoiceField("Ví nhận", toAccountId, accounts.filter { it.id != accountId }.map { it.id to it.name }, onSelected = { toAccountId = it })
+        } else {
+            ChoiceField("Danh mục", categoryId, categories.filter { it.type == type }.map { it.id to it.name }, onSelected = { categoryId = it })
+        }
+        OutlinedTextField(date, { date = it.take(10) }, label = { Text("Ngày dd/MM/yyyy") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(note, { note = it }, label = { Text("Ghi chú") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+    }
+}
+
+@Composable
+private fun BudgetDialog(item: BudgetEntity?, categories: List<CategoryEntity>, onDismiss: () -> Unit, onSave: (BudgetEntity) -> Unit) {
+    var categoryId by remember(item, categories) { mutableLongStateOf(item?.categoryId ?: categories.firstOrNull()?.id ?: 0L) }
+    var amount by remember(item) { mutableStateOf(item?.limitAmount?.toString().orEmpty()) }
+    val month = AppViewModel.monthKey(System.currentTimeMillis())
+    EditorDialog(if (item == null) "Thêm ngân sách" else "Sửa ngân sách", onDismiss, {
+        onSave(item?.copy(categoryId = categoryId, limitAmount = parseMoney(amount), monthKey = month) ?: BudgetEntity(monthKey = month, categoryId = categoryId, limitAmount = parseMoney(amount)))
+    }, parseMoney(amount) > 0 && categoryId > 0) {
+        ChoiceField("Danh mục", categoryId, categories.map { it.id to it.name }, onSelected = { categoryId = it })
+        MoneyField(amount, { amount = it }, "Hạn mức tháng")
+    }
+}
+
+@Composable
+private fun GoalDialog(item: GoalEntity?, onDismiss: () -> Unit, onSave: (GoalEntity) -> Unit) {
+    var name by remember(item) { mutableStateOf(item?.name.orEmpty()) }
+    var target by remember(item) { mutableStateOf(item?.targetAmount?.toString().orEmpty()) }
+    var saved by remember(item) { mutableStateOf(item?.savedAmount?.toString().orEmpty()) }
+    var deadline by remember(item) { mutableStateOf(item?.deadline?.let(::dateOnly).orEmpty()) }
+    EditorDialog(if (item == null) "Thêm mục tiêu" else "Sửa mục tiêu", onDismiss, {
+        val due = deadline.takeIf { it.isNotBlank() }?.let(::parseDate)
+        onSave(item?.copy(name = name.trim(), targetAmount = parseMoney(target), savedAmount = parseMoney(saved), deadline = due) ?: GoalEntity(name = name.trim(), targetAmount = parseMoney(target), savedAmount = parseMoney(saved), deadline = due))
+    }, name.isNotBlank() && parseMoney(target) > 0) {
+        OutlinedTextField(name, { name = it }, label = { Text("Tên mục tiêu") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        MoneyField(target, { target = it }, "Số tiền mục tiêu")
+        MoneyField(saved, { saved = it }, "Đã tiết kiệm")
+        OutlinedTextField(deadline, { deadline = it.take(10) }, label = { Text("Hạn dd/MM/yyyy (tùy chọn)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+    }
+}
+
+@Composable
+private fun DebtDialog(item: DebtEntity?, onDismiss: () -> Unit, onSave: (DebtEntity) -> Unit) {
+    var name by remember(item) { mutableStateOf(item?.name.orEmpty()) }
+    var type by remember(item) { mutableStateOf(item?.type ?: DebtType.PAYABLE.name) }
+    var original by remember(item) { mutableStateOf(item?.originalAmount?.toString().orEmpty()) }
+    var remaining by remember(item) { mutableStateOf(item?.remainingAmount?.toString().orEmpty()) }
+    var interest by remember(item) { mutableStateOf(item?.annualInterestRate?.toString() ?: "0") }
+    var due by remember(item) { mutableStateOf(item?.dueDate?.let(::dateOnly).orEmpty()) }
+    var note by remember(item) { mutableStateOf(item?.note.orEmpty()) }

@@ -1,0 +1,257 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
+package vn.tietkiem.pro.ui
+
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import vn.tietkiem.pro.data.*
+import vn.tietkiem.pro.ui.theme.TietKiemProTheme
+import java.text.NumberFormat
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.max
+
+private enum class MainTab(val title: String) {
+    DASHBOARD("Tổng quan"), TRANSACTIONS("Giao dịch"), PLANS("Kế hoạch"), ANALYTICS("Phân tích"), SETTINGS("Cài đặt")
+}
+
+@Composable
+fun AppRoot(vm: AppViewModel, onBiometricRequest: () -> Unit) {
+    val settings by vm.settings.collectAsStateWithLifecycle()
+    val unlocked by vm.unlocked.collectAsStateWithLifecycle()
+    val message by vm.message.collectAsStateWithLifecycle()
+
+    if (settings == null) return
+    val actualSettings = settings!!
+
+    TietKiemProTheme(actualSettings.theme) {
+        Box(Modifier.fillMaxSize()) {
+            if (actualSettings.hasPin && !unlocked) {
+                UnlockScreen(
+                    biometricEnabled = actualSettings.biometricEnabled,
+                    onUnlock = vm::verifyPin,
+                    onBiometric = onBiometricRequest
+                )
+            } else {
+                if (!actualSettings.hasPin && !unlocked) LaunchedEffect(Unit) { vm.unlockWithoutPin() }
+                MainApp(vm, actualSettings, onBiometricRequest)
+            }
+
+            if (message != null) {
+                SnackbarMessage(message = message!!, onDismiss = vm::consumeMessage)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SnackbarMessage(message: String, onDismiss: () -> Unit) {
+    Box(Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.BottomCenter) {
+        Snackbar(action = { TextButton(onClick = onDismiss) { Text("Đóng") } }) { Text(message) }
+    }
+    LaunchedEffect(message) {
+        kotlinx.coroutines.delay(2600)
+        onDismiss()
+    }
+}
+
+@Composable
+private fun MainApp(vm: AppViewModel, settings: AppSettings, onBiometricRequest: () -> Unit) {
+    var tabName by rememberSaveable { mutableStateOf(MainTab.DASHBOARD.name) }
+    val tab = MainTab.valueOf(tabName)
+    Scaffold(
+        bottomBar = {
+            NavigationBar {
+                MainTab.entries.forEach { item ->
+                    NavigationBarItem(
+                        selected = tab == item,
+                        onClick = { tabName = item.name },
+                        icon = {
+                            Icon(
+                                when (item) {
+                                    MainTab.DASHBOARD -> Icons.Default.Home
+                                    MainTab.TRANSACTIONS -> Icons.Default.ReceiptLong
+                                    MainTab.PLANS -> Icons.Default.Flag
+                                    MainTab.ANALYTICS -> Icons.Default.BarChart
+                                    MainTab.SETTINGS -> Icons.Default.Settings
+                                },
+                                contentDescription = item.title
+                            )
+                        },
+                        label = { Text(item.title, maxLines = 1) }
+                    )
+                }
+            }
+        }
+    ) { padding ->
+        Box(Modifier.fillMaxSize().padding(padding)) {
+            when (tab) {
+                MainTab.DASHBOARD -> DashboardScreen(vm)
+                MainTab.TRANSACTIONS -> TransactionsScreen(vm)
+                MainTab.PLANS -> PlansScreen(vm)
+                MainTab.ANALYTICS -> AnalyticsScreen(vm)
+                MainTab.SETTINGS -> SettingsScreen(vm, settings, onBiometricRequest)
+            }
+        }
+    }
+}
+
+@Composable
+private fun UnlockScreen(
+    biometricEnabled: Boolean,
+    onUnlock: (String) -> Unit,
+    onBiometric: () -> Unit
+) {
+    var pin by remember { mutableStateOf("") }
+    Surface(Modifier.fillMaxSize()) {
+        Column(
+            Modifier.fillMaxSize().padding(28.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(Icons.Default.Lock, null, Modifier.size(48.dp), tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(16.dp))
+            Text("Tiết Kiệm Pro", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(24.dp))
+            OutlinedTextField(
+                value = pin,
+                onValueChange = { pin = it.filter(Char::isDigit).take(12) },
+                label = { Text("PIN") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                visualTransformation = PasswordVisualTransformation(),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(12.dp))
+            Button(onClick = { onUnlock(pin) }, enabled = pin.length >= 4, modifier = Modifier.fillMaxWidth()) {
+                Text("Mở khóa")
+            }
+            if (biometricEnabled) {
+                TextButton(onClick = onBiometric) {
+                    Icon(Icons.Default.Fingerprint, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Dùng sinh trắc học")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DashboardScreen(vm: AppViewModel) {
+    val dashboard by vm.dashboard.collectAsStateWithLifecycle()
+    val accounts by vm.accounts.collectAsStateWithLifecycle()
+    val goals by vm.goals.collectAsStateWithLifecycle()
+    val budgets by vm.budgets.collectAsStateWithLifecycle()
+    val categories by vm.categories.collectAsStateWithLifecycle()
+    val txs by vm.transactions.collectAsStateWithLifecycle()
+    var accountEditor by remember { mutableStateOf<AccountEntity?>(null) }
+    var creatingAccount by remember { mutableStateOf(false) }
+
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Text("Tổng quan", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Text(monthDisplay(System.currentTimeMillis()), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        item {
+            ElevatedCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(18.dp)) {
+                    Text("Tài sản ròng", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(money(dashboard.netWorth), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(14.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        StatMini("Thu", dashboard.incomeThisMonth)
+                        StatMini("Chi", dashboard.expenseThisMonth)
+                        StatMini("Tiết kiệm", dashboard.savingThisMonth)
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Text("Tỷ lệ tiết kiệm ${(dashboard.savingRate * 100).coerceIn(-999.0, 999.0).toInt()}%")
+                }
+            }
+        }
+        item {
+            SectionTitle("Ngân sách tháng", action = if (dashboard.budgetLimit > 0) null else "Chưa đặt")
+            val progress = if (dashboard.budgetLimit > 0) dashboard.budgetSpent.toFloat() / dashboard.budgetLimit else 0f
+            LinearProgressIndicator(progress = { progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(6.dp))
+            Text(
+                if (dashboard.budgetLimit > 0) "${money(dashboard.budgetSpent)} / ${money(dashboard.budgetLimit)}" else "Thiết lập ngân sách trong Kế hoạch",
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                SectionTitle("Ví & tài khoản", Modifier.weight(1f))
+                IconButton(onClick = { creatingAccount = true }) { Icon(Icons.Default.Add, "Thêm ví") }
+            }
+        }
+        items(accounts.filterNot { it.archived }, key = { it.id }) { account ->
+            ListItem(
+                headlineContent = { Text(account.name, fontWeight = FontWeight.SemiBold) },
+                supportingContent = { Text(accountTypeLabel(account.type)) },
+                trailingContent = { Text(money(account.balance), fontWeight = FontWeight.Bold) },
+                leadingContent = { Icon(Icons.Default.AccountBalanceWallet, null) },
+                modifier = Modifier.clickable { accountEditor = account }
+            )
+            HorizontalDivider()
+        }
+        if (goals.isNotEmpty()) {
+            item { SectionTitle("Mục tiêu tiết kiệm") }
+            items(goals.take(3), key = { "goal-${it.id}" }) { goal ->
+                val p = if (goal.targetAmount > 0) goal.savedAmount.toFloat() / goal.targetAmount else 0f
+                Column(Modifier.fillMaxWidth()) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(goal.name, fontWeight = FontWeight.SemiBold)
+                        Text("${(p * 100).coerceIn(0f, 999f).toInt()}%")
+                    }
+                    LinearProgressIndicator(progress = { p.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                    Text("${money(goal.savedAmount)} / ${money(goal.targetAmount)}", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+        if (budgets.isNotEmpty()) {
+            item { SectionTitle("Chi tiêu theo ngân sách") }
+            val month = AppViewModel.monthKey(System.currentTimeMillis())
+            items(budgets.filter { it.monthKey == month }.take(5), key = { "budget-${it.id}" }) { budget ->
+                val category = categories.firstOrNull { it.id == budget.categoryId }
+                val spent = txs.filter {
+                    it.type == TransactionType.EXPENSE.name && it.categoryId == budget.categoryId && AppViewModel.monthKey(it.occurredAt) == month
+                }.sumOf { it.amount }
+                val p = if (budget.limitAmount > 0) spent.toFloat() / budget.limitAmount else 0f
+                Column {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(category?.name ?: "Danh mục")
+                        Text("${money(spent)} / ${money(budget.limitAmount)}")
+                    }
+                    LinearProgressIndicator(progress = { p.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                }
+            }
+        }
+        item { Spacer(Modifier.height(8.dp)) }

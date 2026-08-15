@@ -1,0 +1,213 @@
+    }
+
+    if (creatingAccount || accountEditor != null) {
+        AccountDialog(
+            item = accountEditor,
+            onDismiss = { creatingAccount = false; accountEditor = null },
+            onSave = { vm.saveAccount(it); creatingAccount = false; accountEditor = null },
+            onArchive = accountEditor?.let { acc -> { vm.archiveAccount(acc, !acc.archived); accountEditor = null } }
+        )
+    }
+}
+
+@Composable
+private fun StatMini(label: String, value: Long) {
+    Column {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(money(value), fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun TransactionsScreen(vm: AppViewModel) {
+    val transactions by vm.transactions.collectAsStateWithLifecycle()
+    val accounts by vm.accounts.collectAsStateWithLifecycle()
+    val categories by vm.categories.collectAsStateWithLifecycle()
+    var filter by rememberSaveable { mutableStateOf("ALL") }
+    var query by rememberSaveable { mutableStateOf("") }
+    var editing by remember { mutableStateOf<TransactionEntity?>(null) }
+    var creating by remember { mutableStateOf(false) }
+
+    val accountMap = remember(accounts) { accounts.associateBy { it.id } }
+    val categoryMap = remember(categories) { categories.associateBy { it.id } }
+    val shown = remember(transactions, filter, query, accounts, categories) {
+        transactions.filter { tx ->
+            val typeOk = filter == "ALL" || tx.type == filter
+            val haystack = listOf(
+                tx.note,
+                accountMap[tx.accountId]?.name.orEmpty(),
+                tx.toAccountId?.let { accountMap[it]?.name }.orEmpty(),
+                tx.categoryId?.let { categoryMap[it]?.name }.orEmpty(),
+                tx.amount.toString()
+            ).joinToString(" ").lowercase()
+            typeOk && (query.isBlank() || haystack.contains(query.trim().lowercase()))
+        }
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Giao dịch", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = { Text("Tìm giao dịch") },
+                    leadingIcon = { Icon(Icons.Default.Search, null) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("ALL" to "Tất cả", TransactionType.INCOME.name to "Thu", TransactionType.EXPENSE.name to "Chi", TransactionType.TRANSFER.name to "Chuyển").forEach { (value, label) ->
+                        FilterChip(selected = filter == value, onClick = { filter = value }, label = { Text(label) })
+                    }
+                }
+            }
+            if (shown.isEmpty()) {
+                EmptyState("Chưa có giao dịch")
+            } else {
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                    items(shown, key = { it.id }) { tx ->
+                        val sign = when (tx.type) {
+                            TransactionType.INCOME.name -> "+"
+                            TransactionType.EXPENSE.name -> "−"
+                            else -> ""
+                        }
+                        ListItem(
+                            headlineContent = {
+                                Text(
+                                    tx.categoryId?.let { categoryMap[it]?.name } ?: if (tx.type == TransactionType.TRANSFER.name) "Chuyển tiền" else "Giao dịch",
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            },
+                            supportingContent = {
+                                Text(
+                                    buildString {
+                                        append(dateTime(tx.occurredAt))
+                                        append(" • ")
+                                        append(accountMap[tx.accountId]?.name ?: "Ví")
+                                        if (tx.type == TransactionType.TRANSFER.name) {
+                                            append(" → "); append(tx.toAccountId?.let { accountMap[it]?.name } ?: "Ví nhận")
+                                        }
+                                        if (tx.note.isNotBlank()) { append(" • "); append(tx.note) }
+                                    },
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            },
+                            leadingContent = {
+                                Icon(
+                                    when (tx.type) {
+                                        TransactionType.INCOME.name -> Icons.Default.ArrowDownward
+                                        TransactionType.EXPENSE.name -> Icons.Default.ArrowUpward
+                                        else -> Icons.Default.SwapHoriz
+                                    }, null
+                                )
+                            },
+                            trailingContent = { Text("$sign${money(tx.amount)}", fontWeight = FontWeight.Bold) },
+                            modifier = Modifier.clickable { editing = tx }
+                        )
+                        HorizontalDivider()
+                    }
+                }
+            }
+        }
+        FloatingActionButton(onClick = { creating = true }, modifier = Modifier.align(Alignment.BottomEnd).padding(18.dp)) {
+            Icon(Icons.Default.Add, "Thêm giao dịch")
+        }
+    }
+
+    if (creating || editing != null) {
+        TransactionDialog(
+            item = editing,
+            accounts = accounts.filterNot { it.archived },
+            categories = categories,
+            onDismiss = { creating = false; editing = null },
+            onSave = { vm.saveTransaction(it); creating = false; editing = null },
+            onDelete = editing?.let { tx -> { vm.deleteTransaction(tx); editing = null } }
+        )
+    }
+}
+
+@Composable
+private fun PlansScreen(vm: AppViewModel) {
+    val budgets by vm.budgets.collectAsStateWithLifecycle()
+    val goals by vm.goals.collectAsStateWithLifecycle()
+    val debts by vm.debts.collectAsStateWithLifecycle()
+    val recurring by vm.recurring.collectAsStateWithLifecycle()
+    val categories by vm.categories.collectAsStateWithLifecycle()
+    val accounts by vm.accounts.collectAsStateWithLifecycle()
+    val transactions by vm.transactions.collectAsStateWithLifecycle()
+
+    var planTab by rememberSaveable { mutableIntStateOf(0) }
+    var editBudget by remember { mutableStateOf<BudgetEntity?>(null) }
+    var editGoal by remember { mutableStateOf<GoalEntity?>(null) }
+    var editDebt by remember { mutableStateOf<DebtEntity?>(null) }
+    var editRecurring by remember { mutableStateOf<RecurringEntity?>(null) }
+    var creating by remember { mutableStateOf(false) }
+    val labels = listOf("Ngân sách", "Mục tiêu", "Nợ", "Định kỳ")
+
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
+            Text("Kế hoạch", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(16.dp, 16.dp, 16.dp, 6.dp))
+            ScrollableTabRow(selectedTabIndex = planTab, edgePadding = 12.dp) {
+                labels.forEachIndexed { index, label -> Tab(selected = planTab == index, onClick = { planTab = index }, text = { Text(label) }) }
+            }
+            when (planTab) {
+                0 -> BudgetList(budgets, categories, transactions, onEdit = { editBudget = it }, onDelete = vm::deleteBudget)
+                1 -> GoalList(goals, onEdit = { editGoal = it }, onDelete = vm::deleteGoal)
+                2 -> DebtList(debts, onEdit = { editDebt = it }, onDelete = vm::deleteDebt)
+                3 -> RecurringList(recurring, accounts, categories, onEdit = { editRecurring = it }, onDelete = vm::deleteRecurring, onPostDue = vm::postDueRecurring)
+            }
+        }
+        FloatingActionButton(onClick = { creating = true }, modifier = Modifier.align(Alignment.BottomEnd).padding(18.dp)) { Icon(Icons.Default.Add, "Thêm") }
+    }
+
+    when {
+        (creating && planTab == 0) || editBudget != null -> BudgetDialog(editBudget, categories.filter { it.type == CategoryType.EXPENSE.name }, { creating = false; editBudget = null }) { vm.saveBudget(it); creating = false; editBudget = null }
+        (creating && planTab == 1) || editGoal != null -> GoalDialog(editGoal, { creating = false; editGoal = null }) { vm.saveGoal(it); creating = false; editGoal = null }
+        (creating && planTab == 2) || editDebt != null -> DebtDialog(editDebt, { creating = false; editDebt = null }) { vm.saveDebt(it); creating = false; editDebt = null }
+        (creating && planTab == 3) || editRecurring != null -> RecurringDialog(editRecurring, accounts.filterNot { it.archived }, categories, { creating = false; editRecurring = null }) { vm.saveRecurring(it); creating = false; editRecurring = null }
+    }
+}
+
+@Composable
+private fun BudgetList(
+    budgets: List<BudgetEntity>,
+    categories: List<CategoryEntity>,
+    transactions: List<TransactionEntity>,
+    onEdit: (BudgetEntity) -> Unit,
+    onDelete: (BudgetEntity) -> Unit
+) {
+    val month = AppViewModel.monthKey(System.currentTimeMillis())
+    val active = budgets.filter { it.monthKey == month }
+    val catMap = categories.associateBy { it.id }
+    if (active.isEmpty()) EmptyState("Chưa có ngân sách tháng này") else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp)) {
+        items(active, key = { it.id }) { budget ->
+            val spent = transactions.filter { it.type == TransactionType.EXPENSE.name && it.categoryId == budget.categoryId && AppViewModel.monthKey(it.occurredAt) == month }.sumOf { it.amount }
+            val p = if (budget.limitAmount > 0) spent.toFloat() / budget.limitAmount else 0f
+            ElevatedCard(Modifier.fillMaxWidth().padding(vertical = 5.dp).clickable { onEdit(budget) }) {
+                Column(Modifier.padding(14.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(catMap[budget.categoryId]?.name ?: "Danh mục", fontWeight = FontWeight.Bold)
+                            Text("${money(spent)} / ${money(budget.limitAmount)}")
+                        }
+                        IconButton(onClick = { onDelete(budget) }) { Icon(Icons.Default.Delete, "Xóa") }
+                    }
+                    LinearProgressIndicator(progress = { p.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                    if (spent > budget.limitAmount) Text("Vượt ${money(spent - budget.limitAmount)}", color = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GoalList(goals: List<GoalEntity>, onEdit: (GoalEntity) -> Unit, onDelete: (GoalEntity) -> Unit) {
+    if (goals.isEmpty()) EmptyState("Chưa có mục tiêu tiết kiệm") else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp)) {
+        items(goals, key = { it.id }) { goal ->
+            val p = if (goal.targetAmount > 0) goal.savedAmount.toFloat() / goal.targetAmount else 0f
+            ElevatedCard(Modifier.fillMaxWidth().padding(vertical = 5.dp).clickable { onEdit(goal) }) {
+                Column(Modifier.padding(14.dp)) {
