@@ -118,6 +118,7 @@ class AppViewModel(private val app: TietKiemProApplication) : ViewModel() {
     fun deleteRecurring(item: RecurringEntity) = launchAction("Đã xóa giao dịch định kỳ") { repo.deleteRecurring(item) }
     fun postDueRecurring() = launchAction("Đã cập nhật giao dịch đến hạn") { repo.postDueRecurring() }
     fun exportBackup(uri: Uri) = launchAction("Đã xuất bản sao lưu") { backup.exportTo(uri) }
+    fun exportTransactionsCsv(uri: Uri) = launchAction("Đã xuất CSV giao dịch") { backup.exportTransactionsCsv(uri) }
     fun importBackup(uri: Uri) = launchAction("Đã khôi phục dữ liệu") { backup.importFrom(uri) }
 
     private fun launchAction(success: String, action: suspend () -> Unit) {
