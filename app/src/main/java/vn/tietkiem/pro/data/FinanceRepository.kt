@@ -3,6 +3,7 @@ package vn.tietkiem.pro.data
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import java.util.Calendar
+import java.util.concurrent.TimeUnit
 
 class FinanceRepository(private val db: AppDatabase) {
     private val dao = db.financeDao()
@@ -14,6 +15,18 @@ class FinanceRepository(private val db: AppDatabase) {
     val goals: Flow<List<GoalEntity>> = dao.observeGoals()
     val debts: Flow<List<DebtEntity>> = dao.observeDebts()
     val recurring: Flow<List<RecurringEntity>> = dao.observeRecurring()
+    val payees: Flow<List<PayeeEntity>> = dao.observePayees()
+    val tags: Flow<List<TagEntity>> = dao.observeTags()
+    val transactionMeta: Flow<List<TransactionMetaEntity>> = dao.observeTransactionMeta()
+    val transactionTags: Flow<List<TransactionTagEntity>> = dao.observeTransactionTags()
+    val transactionSplits: Flow<List<TransactionSplitEntity>> = dao.observeTransactionSplits()
+    val budgetConfigs: Flow<List<BudgetConfigEntity>> = dao.observeBudgetConfigs()
+    val goalContributions: Flow<List<GoalContributionEntity>> = dao.observeGoalContributions()
+    val goalLinks: Flow<List<GoalLinkEntity>> = dao.observeGoalLinks()
+    val debtPayments: Flow<List<DebtPaymentEntity>> = dao.observeDebtPayments()
+    val accountSnapshots: Flow<List<AccountSnapshotEntity>> = dao.observeAccountSnapshots()
+    val aiMessages: Flow<List<AiChatMessageEntity>> = dao.observeAiMessages()
+    val premiumPayments: Flow<List<PremiumPaymentEntity>> = dao.observePremiumPayments()
 
     suspend fun ensureSeedData() = db.withTransaction {
         if (dao.getAccounts().isEmpty()) {
@@ -21,19 +34,19 @@ class FinanceRepository(private val db: AppDatabase) {
         }
         if (dao.getCategories().isEmpty()) {
             val defaults = listOf(
-            CategoryEntity(name = "Ăn uống", type = CategoryType.EXPENSE.name, icon = "restaurant", sortOrder = 10),
-            CategoryEntity(name = "Đi lại", type = CategoryType.EXPENSE.name, icon = "directions_car", sortOrder = 20),
-            CategoryEntity(name = "Nhà ở", type = CategoryType.EXPENSE.name, icon = "home", sortOrder = 30),
-            CategoryEntity(name = "Hóa đơn", type = CategoryType.EXPENSE.name, icon = "receipt", sortOrder = 40),
-            CategoryEntity(name = "Mua sắm", type = CategoryType.EXPENSE.name, icon = "shopping_bag", sortOrder = 50),
-            CategoryEntity(name = "Sức khỏe", type = CategoryType.EXPENSE.name, icon = "health", sortOrder = 60),
-            CategoryEntity(name = "Giải trí", type = CategoryType.EXPENSE.name, icon = "movie", sortOrder = 70),
-            CategoryEntity(name = "Giáo dục", type = CategoryType.EXPENSE.name, icon = "school", sortOrder = 80),
-            CategoryEntity(name = "Khác", type = CategoryType.EXPENSE.name, icon = "more", sortOrder = 90),
-            CategoryEntity(name = "Lương", type = CategoryType.INCOME.name, icon = "payments", sortOrder = 10),
-            CategoryEntity(name = "Thưởng", type = CategoryType.INCOME.name, icon = "star", sortOrder = 20),
-            CategoryEntity(name = "Đầu tư", type = CategoryType.INCOME.name, icon = "trending_up", sortOrder = 30),
-            CategoryEntity(name = "Thu khác", type = CategoryType.INCOME.name, icon = "add", sortOrder = 40)
+                CategoryEntity(name = "Ăn uống", type = CategoryType.EXPENSE.name, icon = "restaurant", sortOrder = 10),
+                CategoryEntity(name = "Đi lại", type = CategoryType.EXPENSE.name, icon = "directions_car", sortOrder = 20),
+                CategoryEntity(name = "Nhà ở", type = CategoryType.EXPENSE.name, icon = "home", sortOrder = 30),
+                CategoryEntity(name = "Hóa đơn", type = CategoryType.EXPENSE.name, icon = "receipt", sortOrder = 40),
+                CategoryEntity(name = "Mua sắm", type = CategoryType.EXPENSE.name, icon = "shopping_bag", sortOrder = 50),
+                CategoryEntity(name = "Sức khỏe", type = CategoryType.EXPENSE.name, icon = "health", sortOrder = 60),
+                CategoryEntity(name = "Giải trí", type = CategoryType.EXPENSE.name, icon = "movie", sortOrder = 70),
+                CategoryEntity(name = "Giáo dục", type = CategoryType.EXPENSE.name, icon = "school", sortOrder = 80),
+                CategoryEntity(name = "Khác", type = CategoryType.EXPENSE.name, icon = "more", sortOrder = 90),
+                CategoryEntity(name = "Lương", type = CategoryType.INCOME.name, icon = "payments", sortOrder = 10),
+                CategoryEntity(name = "Thưởng", type = CategoryType.INCOME.name, icon = "star", sortOrder = 20),
+                CategoryEntity(name = "Đầu tư", type = CategoryType.INCOME.name, icon = "trending_up", sortOrder = 30),
+                CategoryEntity(name = "Thu khác", type = CategoryType.INCOME.name, icon = "add", sortOrder = 40)
             )
             dao.insertCategories(defaults)
         }
@@ -47,17 +60,41 @@ class FinanceRepository(private val db: AppDatabase) {
         dao.updateAccount(account.copy(archived = archived))
     }
 
-    suspend fun saveTransaction(item: TransactionEntity) = db.withTransaction {
+    suspend fun saveTransaction(item: TransactionEntity): Long = db.withTransaction {
         saveTransactionCore(item)
     }
 
-    private suspend fun saveTransactionCore(item: TransactionEntity) {
+    suspend fun saveRichTransaction(
+        item: TransactionEntity,
+        meta: TransactionMetaEntity?,
+        tagIds: List<Long>,
+        splits: List<TransactionSplitEntity>
+    ): Long = db.withTransaction {
+        if (splits.isNotEmpty()) {
+            require(splits.all { it.amount > 0 }) { "Khoản chia phải lớn hơn 0" }
+            require(splits.sumOf { it.amount } == item.amount) { "Tổng khoản chia phải bằng số tiền giao dịch" }
+        }
+        val id = saveTransactionCore(item)
+        dao.clearTransactionTags(id)
+        dao.clearTransactionSplits(id)
+        if (meta == null) dao.deleteTransactionMeta(id)
+        else dao.upsertTransactionMeta(meta.copy(transactionId = id))
+        if (tagIds.isNotEmpty()) dao.insertTransactionTags(tagIds.distinct().map { TransactionTagEntity(id, it) })
+        if (splits.isNotEmpty()) dao.insertTransactionSplits(splits.map { it.copy(id = 0, transactionId = id) })
+        id
+    }
+
+    private suspend fun saveTransactionCore(item: TransactionEntity): Long {
         require(item.amount > 0) { "Số tiền phải lớn hơn 0" }
         validateTransaction(item)
         val old = if (item.id == 0L) null else dao.getTransaction(item.id)
         if (old != null) reverseTransaction(old)
-        if (old == null) dao.insertTransaction(item) else dao.updateTransaction(item)
-        applyTransaction(item)
+        val id = if (old == null) dao.insertTransaction(item) else {
+            dao.updateTransaction(item)
+            item.id
+        }
+        applyTransaction(item.copy(id = id))
+        return id
     }
 
     suspend fun deleteTransaction(item: TransactionEntity) = db.withTransaction {
@@ -102,11 +139,24 @@ class FinanceRepository(private val db: AppDatabase) {
     }
     suspend fun deleteCategory(item: CategoryEntity) = dao.deleteCategory(item)
 
+    suspend fun savePayee(item: PayeeEntity): Long {
+        require(item.name.isNotBlank()) { "Tên người nhận không được trống" }
+        return dao.upsertPayee(item.copy(name = item.name.trim()))
+    }
+    suspend fun deletePayee(item: PayeeEntity) = dao.deletePayee(item)
+
+    suspend fun saveTag(item: TagEntity): Long {
+        require(item.name.isNotBlank()) { "Tên thẻ không được trống" }
+        return dao.upsertTag(item.copy(name = item.name.trim()))
+    }
+    suspend fun deleteTag(item: TagEntity) = dao.deleteTag(item)
+
     suspend fun saveBudget(item: BudgetEntity) {
         require(item.limitAmount > 0) { "Ngân sách phải lớn hơn 0" }
         dao.upsertBudget(item)
     }
     suspend fun deleteBudget(item: BudgetEntity) = dao.deleteBudget(item)
+    suspend fun saveBudgetConfig(item: BudgetConfigEntity) = dao.upsertBudgetConfig(item)
 
     suspend fun saveGoal(item: GoalEntity) {
         require(item.name.isNotBlank()) { "Tên mục tiêu không được trống" }
@@ -116,6 +166,21 @@ class FinanceRepository(private val db: AppDatabase) {
     }
     suspend fun deleteGoal(item: GoalEntity) = dao.deleteGoal(item)
 
+    suspend fun addGoalContribution(item: GoalContributionEntity) = db.withTransaction {
+        require(item.amount > 0) { "Số tiền đóng góp phải lớn hơn 0" }
+        val goal = requireNotNull(dao.getGoal(item.goalId)) { "Mục tiêu không tồn tại" }
+        dao.insertGoalContribution(item)
+        dao.upsertGoal(goal.copy(savedAmount = (goal.savedAmount + item.amount).coerceAtMost(goal.targetAmount)))
+    }
+
+    suspend fun deleteGoalContribution(item: GoalContributionEntity) = db.withTransaction {
+        val goal = dao.getGoal(item.goalId)
+        dao.deleteGoalContribution(item)
+        if (goal != null) dao.upsertGoal(goal.copy(savedAmount = (goal.savedAmount - item.amount).coerceAtLeast(0)))
+    }
+
+    suspend fun saveGoalLink(item: GoalLinkEntity) = dao.upsertGoalLink(item)
+
     suspend fun saveDebt(item: DebtEntity) {
         require(item.name.isNotBlank()) { "Tên khoản nợ không được trống" }
         require(item.originalAmount > 0) { "Số tiền khoản nợ phải lớn hơn 0" }
@@ -124,6 +189,24 @@ class FinanceRepository(private val db: AppDatabase) {
         dao.upsertDebt(item)
     }
     suspend fun deleteDebt(item: DebtEntity) = dao.deleteDebt(item)
+
+    suspend fun addDebtPayment(item: DebtPaymentEntity) = db.withTransaction {
+        require(item.amount > 0) { "Khoản thanh toán phải lớn hơn 0" }
+        require(item.interestAmount >= 0 && item.interestAmount <= item.amount) { "Tiền lãi không hợp lệ" }
+        val debt = requireNotNull(dao.getDebt(item.debtId)) { "Khoản nợ không tồn tại" }
+        val principal = item.amount - item.interestAmount
+        dao.insertDebtPayment(item)
+        dao.upsertDebt(debt.copy(remainingAmount = (debt.remainingAmount - principal).coerceAtLeast(0)))
+    }
+
+    suspend fun deleteDebtPayment(item: DebtPaymentEntity) = db.withTransaction {
+        val debt = dao.getDebt(item.debtId)
+        dao.deleteDebtPayment(item)
+        if (debt != null) {
+            val principal = item.amount - item.interestAmount
+            dao.upsertDebt(debt.copy(remainingAmount = (debt.remainingAmount + principal).coerceAtMost(debt.originalAmount)))
+        }
+    }
 
     suspend fun saveRecurring(item: RecurringEntity) {
         require(item.name.isNotBlank()) { "Tên giao dịch định kỳ không được trống" }
@@ -160,6 +243,30 @@ class FinanceRepository(private val db: AppDatabase) {
         }
         posted
     }
+
+    suspend fun captureAccountSnapshots(now: Long = System.currentTimeMillis()) = db.withTransaction {
+        val accounts = dao.getAccounts().filterNot { it.archived }
+        if (accounts.isNotEmpty()) {
+            dao.insertAccountSnapshots(accounts.map { AccountSnapshotEntity(accountId = it.id, balance = it.balance, capturedAt = now) })
+        }
+        dao.deleteOldSnapshots(now - TimeUnit.DAYS.toMillis(370))
+    }
+
+    suspend fun addAiMessage(role: String, content: String) {
+        if (content.isNotBlank()) dao.insertAiMessage(AiChatMessageEntity(role = role, content = content.trim()))
+    }
+
+    suspend fun clearAiMessages() = dao.clearAiMessages()
+
+    suspend fun createPremiumPayment(plan: PremiumTier, amount: Long, code: String): Long {
+        require(plan != PremiumTier.FREE) { "Gói thanh toán không hợp lệ" }
+        require(amount > 0) { "Giá gói không hợp lệ" }
+        return dao.insertPremiumPayment(
+            PremiumPaymentEntity(plan = plan.name, amount = amount, transferCode = code, status = PaymentStatus.PENDING.name)
+        )
+    }
+
+    suspend fun updatePremiumPayment(item: PremiumPaymentEntity) = dao.updatePremiumPayment(item)
 
     private fun nextOccurrence(current: Long, interval: String): Long {
         val calendar = Calendar.getInstance().apply { timeInMillis = current }
