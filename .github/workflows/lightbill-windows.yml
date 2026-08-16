@@ -17,8 +17,27 @@ jobs:
       - name: Restore LightBill source
         shell: pwsh
         run: |
-          $parts = Get-ChildItem 'lightbill-source.b64.*' | Sort-Object Name
-          $encoded = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ''
+          $parts = @(
+            'lightbill-source.b64.00',
+            'lightbill-source.b64.01',
+            'lightbill-source.b64.02',
+            'lightbill-source.b64.03a',
+            'lightbill-source.b64.03b1',
+            'lightbill-source.b64.03b2a',
+            'lightbill-source.b64.03b2b',
+            'lightbill-source.b64.04a1a',
+            'lightbill-source.b64.04a1b',
+            'lightbill-source.b64.04a2a',
+            'lightbill-source.b64.04a2b',
+            'lightbill-source.b64.04b1a',
+            'lightbill-source.b64.04b1b',
+            'lightbill-source.b64.04b2a',
+            'lightbill-source.b64.04b2b1',
+            'lightbill-source.b64.04b2b2',
+            'lightbill-source.b64.05',
+            'lightbill-source.b64.06'
+          )
+          $encoded = ($parts | ForEach-Object { Get-Content $_ -Raw }) -join ''
           [IO.File]::WriteAllBytes('LightBill-source.zip', [Convert]::FromBase64String($encoded))
           $expected = (Get-Content 'LightBill-source.sha256' -Raw).Split(' ')[0].Trim()
           $actual = (Get-FileHash 'LightBill-source.zip' -Algorithm SHA256).Hash.ToLowerInvariant()
