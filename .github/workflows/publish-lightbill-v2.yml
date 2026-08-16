@@ -20,15 +20,21 @@ jobs:
         run: |
           cat lbv2part-00 lbv2part-01 lbv2part-02 lbv2-03-0 lbv2-03-1 lbv2-04-0 lbv2-04-1 lbv2part-05 lbv2-06-0 lbv2-06-1 | base64 --decode > /tmp/LightBill-2.0.0-source.zip
           echo "14ba5dccad0053fa43657185636245c16974626105163b793a1dc30c3ed24e45  /tmp/LightBill-2.0.0-source.zip" | sha256sum -c -
+          rm -rf /tmp/lightbill-v2
           mkdir -p /tmp/lightbill-v2
           unzip -q /tmp/LightBill-2.0.0-source.zip -d /tmp/lightbill-v2
-      - name: Replace repository tree
+      - name: Replace application tree, preserve workflow files
         shell: bash
         run: |
+          mkdir -p /tmp/current-workflows
+          cp -a .github/workflows/. /tmp/current-workflows/
           find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
           cp -a /tmp/lightbill-v2/. .
+          rm -rf .github/workflows
+          mkdir -p .github/workflows
+          cp -a /tmp/current-workflows/. .github/workflows/
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "LightBill 2.0: clean repo, ZaloPay, one-click install, MISA eInvoice"
+          git commit -m "LightBill 2.0: clean application tree"
           git push origin HEAD:lightbill
