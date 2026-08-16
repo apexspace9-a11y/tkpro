@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0f172a">
+  <title>LightBill</title>
+  <link rel="stylesheet" href="assets/app.css">
+</head>
+<body>
+<div id="login" class="auth-shell">
+  <form id="loginForm" class="auth-card">
+    <div class="brand-mark">LB</div>
+    <h1>LightBill</h1>
+    <p>Hóa đơn điện tử · Kho · Kế toán</p>
+    <label>Email<input id="loginEmail" type="email" autocomplete="username" required></label>
+    <label>Mật khẩu<input id="loginPassword" type="password" autocomplete="current-password" required></label>
+    <button type="submit">Đăng nhập</button>
+    <div id="loginMsg" class="error"></div>
+  </form>
+</div>
+<div id="app" class="app hidden">
+  <aside class="sidebar">
+    <div class="logo"><span>LB</span><b>LightBill</b></div>
+    <nav id="nav"></nav>
+    <div class="side-footer"><div id="userName"></div><button id="logoutBtn" class="ghost">Đăng xuất</button></div>
+  </aside>
+  <main class="main">
+    <header class="topbar"><button id="menuBtn" class="menu">☰</button><div><h2 id="pageTitle">Tổng quan</h2><small id="companyName"></small></div><div class="top-actions"><span id="statusDot">●</span></div></header>
+    <section id="content" class="content"></section>
+  </main>
+</div>
+<div id="toast" class="toast"></div>
+<script src="assets/app.js"></script>
+</body>
+</html>

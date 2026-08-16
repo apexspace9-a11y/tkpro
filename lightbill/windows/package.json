@@ -1,0 +1,25 @@
+{
+  "name": "lightbill-windows",
+  "version": "1.0.0",
+  "description": "LightBill Windows client",
+  "main": "main.js",
+  "author": "LightBill",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis portable"
+  },
+  "devDependencies": {
+    "electron": "35.7.5",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "vn.lightbill.desktop",
+    "productName": "LightBill",
+    "files": ["main.js", "preload.js", "renderer/**/*"],
+    "directories": {"output": "dist"},
+    "win": {"target": ["nsis", "portable"], "artifactName": "LightBill-${version}-${arch}.${ext}"},
+    "nsis": {"oneClick": false, "allowToChangeInstallationDirectory": true}
+  }
+}

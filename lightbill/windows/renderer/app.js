@@ -1,0 +1,1 @@
+document.querySelector('#f').addEventListener('submit',async e=>{e.preventDefault();const err=document.querySelector('#err');err.textContent='';const ok=await window.lightbill.setServer(document.querySelector('#server').value);if(!ok)err.textContent='Địa chỉ phải dùng HTTPS hợp lệ.'});
