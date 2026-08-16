@@ -1,0 +1,48 @@
+name: Publish LightBill Source
+on:
+  push:
+    branches: [lightbill]
+    paths:
+      - '.github/workflows/lightbill-publish-source.yml'
+permissions:
+  contents: write
+jobs:
+  publish-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: lightbill
+      - name: Restore verified source
+        shell: bash
+        run: |
+          cat \
+            lightbill-source.b64.00 \
+            lightbill-source.b64.01 \
+            lightbill-source.b64.02 \
+            lightbill-source.b64.03a \
+            lightbill-source.b64.03b1 \
+            lightbill-source.b64.03b2a \
+            lightbill-source.b64.03b2b \
+            lightbill-source.b64.04a1a \
+            lightbill-source.b64.04a1b \
+            lightbill-source.b64.04a2a \
+            lightbill-source.b64.04a2b \
+            lightbill-source.b64.04b1a \
+            lightbill-source.b64.04b1b \
+            lightbill-source.b64.04b2a \
+            lightbill-source.b64.04b2b1 \
+            lightbill-source.b64.04b2b2 \
+            lightbill-source.b64.05 \
+            lightbill-source.b64.06 | base64 --decode > LightBill-source.zip
+          sha256sum -c LightBill-source.sha256
+          unzip -oq LightBill-source.zip
+      - name: Commit source tree
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add lightbill LIGHTBILL.md
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Publish LightBill source tree'
+          git push origin HEAD:lightbill
