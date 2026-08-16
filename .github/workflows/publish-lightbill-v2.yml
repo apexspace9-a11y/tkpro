@@ -4,6 +4,7 @@ on:
     branches: [lightbill]
     paths:
       - 'lbv2part-*'
+      - 'lbv2-*-*'
       - '.github/workflows/publish-lightbill-v2.yml'
 permissions:
   contents: write
@@ -17,7 +18,7 @@ jobs:
       - name: Restore and verify
         shell: bash
         run: |
-          cat lbv2part-* | base64 --decode > /tmp/LightBill-2.0.0-source.zip
+          cat lbv2part-00 lbv2part-01 lbv2part-02 lbv2-03-0 lbv2-03-1 lbv2-04-0 lbv2-04-1 lbv2part-05 lbv2-06-0 lbv2-06-1 | base64 --decode > /tmp/LightBill-2.0.0-source.zip
           echo "14ba5dccad0053fa43657185636245c16974626105163b793a1dc30c3ed24e45  /tmp/LightBill-2.0.0-source.zip" | sha256sum -c -
           mkdir -p /tmp/lightbill-v2
           unzip -q /tmp/LightBill-2.0.0-source.zip -d /tmp/lightbill-v2
