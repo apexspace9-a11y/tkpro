@@ -1,11 +1,19 @@
 <?php
 declare(strict_types=1);
 
-use LightBill\{Auth,BusinessService,Crypto,DB,Env,MomoService,Request,Response,Util};
+use LightBill\{Auth,BusinessService,CompanySettings,Crypto,DB,Env,MisaEInvoiceService,Request,Response,Util,ZaloPayService};
 
-require dirname(__DIR__) . '/src/bootstrap.php';
-require dirname(__DIR__) . '/src/MomoService.php';
-require dirname(__DIR__) . '/src/BusinessService.php';
+$root = dirname(__DIR__);
+$prePath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+if ((!is_file($root . '/.env') || !is_file($root . '/storage/installed.lock')) && !preg_match('#/install(?:\.php)?/?$#', $prePath)) {
+    $installBase=rtrim(str_replace('\\','/',dirname((string)($_SERVER['SCRIPT_NAME']??'/index.php'))), '/.');
+    header('Location: '.($installBase?:'').'/install', true, 302);
+    exit;
+}
+require $root . '/src/bootstrap.php';
+require $root . '/src/BusinessService.php';
+require $root . '/src/ZaloPayService.php';
+require $root . '/src/MisaEInvoiceService.php';
 
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 $allowedOrigins = array_filter(array_map('trim', explode(',', Env::get('CORS_ORIGINS', Env::get('APP_URL','')) ?? '')));
@@ -21,7 +29,7 @@ header('X-Frame-Options: SAMEORIGIN');
 header('Referrer-Policy: strict-origin-when-cross-origin');
 header("Permissions-Policy: camera=(), microphone=(), geolocation=()");
 if ((Env::get('APP_ENV','production') ?? 'production') === 'production') {
-    header("Content-Security-Policy: default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https://test-payment.momo.vn https://payment.momo.vn; frame-ancestors 'self'");
+    header("Content-Security-Policy: default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'self'");
 }
 
 $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
@@ -31,7 +39,7 @@ if ($basePath && str_starts_with($path, $basePath)) $path = substr($path, strlen
 
 try {
     if ($path === '/api/health' && $method === 'GET') {
-        DB::pdo()->query('SELECT 1'); Response::ok(['service'=>'lightbill','time'=>date(DATE_ATOM)]);
+        DB::pdo()->query('SELECT 1'); Response::ok(['service'=>'lightbill','version'=>Env::get('APP_VERSION','2.0.0')]);
     }
     if ($path === '/api/auth/login' && $method === 'POST') {
         $b=Request::body(); $email=strtolower(Util::text($b['email']??'',190)); $password=(string)($b['password']??'');
@@ -97,12 +105,17 @@ try {
     if($path==='/api/users'&&$method==='POST'){$u=Auth::requireUser('users.write');$cid=(int)$u['company_id'];$b=Request::body();$email=strtolower(Util::text($b['email']??'',190));$role=Util::text($b['role']??'viewer',32);$roles=['owner','admin','accountant','warehouse','cashier','viewer'];$branchId=!empty($b['branch_id'])?(int)$b['branch_id']:null;if(!filter_var($email,FILTER_VALIDATE_EMAIL)||!in_array($role,$roles,true)||strlen((string)($b['password']??''))<8||trim((string)($b['full_name']??''))==='')Response::error('Thông tin tài khoản không hợp lệ',422);if($branchId&&!Util::row('SELECT id FROM branches WHERE id=? AND company_id=? AND is_active=1',[$branchId,$cid]))Response::error('Chi nhánh không hợp lệ',422);try{DB::pdo()->prepare('INSERT INTO users(company_id,branch_id,full_name,email,phone,password_hash,role,level,is_active) VALUES(?,?,?,?,?,?,?,?,1)')->execute([$cid,$branchId,Util::text($b['full_name']??'',190),$email,Util::text($b['phone']??'',32),password_hash((string)$b['password'],PASSWORD_DEFAULT),$role,(int)($b['level']??10)]);}catch(PDOException $e){if($e->getCode()==='23000')Response::error('Email đã tồn tại',409);throw $e;}$id=(int)DB::pdo()->lastInsertId();Auth::audit($cid,(int)$u['id'],'user.create','user',(string)$id,['role'=>$role]);Response::ok(['id'=>$id],201);}
 
     if($path==='/api/settings'&&$method==='GET'){$u=Auth::requireUser('settings.read');$cid=(int)$u['company_id'];$rows=Util::rows('SELECT setting_key,CASE WHEN is_secret=1 THEN NULL ELSE setting_value END setting_value,is_secret,updated_at FROM settings WHERE company_id=? ORDER BY setting_key',[$cid]);Response::ok(['items'=>$rows,'company'=>Util::row('SELECT id,name,tax_code,address,phone,email,accounting_regime,fiscal_year_start_month,plan_code FROM companies WHERE id=?',[$cid])]);}
-    if($path==='/api/settings'&&$method==='POST'){$u=Auth::requireUser('settings.write');$cid=(int)$u['company_id'];$b=Request::body();$key=preg_replace('/[^a-zA-Z0-9_.-]/','',Util::text($b['key']??'',100));if(!$key)Response::error('Khóa cấu hình không hợp lệ',422);$secret=!empty($b['is_secret'])?1:0;$value=(string)($b['value']??'');if($secret)$value=Crypto::encrypt($value);DB::pdo()->prepare('INSERT INTO settings(company_id,setting_key,setting_value,is_secret) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value),is_secret=VALUES(is_secret)')->execute([$cid,$key,$value,$secret]);Auth::audit($cid,(int)$u['id'],'settings.update','setting',$key);Response::ok();}
+    if($path==='/api/settings'&&$method==='POST'){$u=Auth::requireUser('settings.write');$cid=(int)$u['company_id'];$b=Request::body();$key=preg_replace('/[^a-zA-Z0-9_.-]/','',Util::text($b['key']??'',100));if(!$key)Response::error('Khóa cấu hình không hợp lệ',422);$secret=!empty($b['is_secret']);CompanySettings::set($cid,$key,(string)($b['value']??''),$secret);Auth::audit($cid,(int)$u['id'],'settings.update','setting',$key);Response::ok();}
 
-    if($path==='/api/momo/create'&&$method==='POST'){$u=Auth::requireUser('momo.create');$b=Request::body();$amount=(int)($b['amount']??0);$saleId=!empty($b['sale_id'])?(int)$b['sale_id']:null;if($saleId){$sale=BusinessService::saleDetail((int)$u['company_id'],$saleId);if(!$sale)Response::error('Không tìm thấy đơn bán',404);$amount=(int)round((float)$sale['total_amount']-(float)$sale['paid_amount']);}$r=(new MomoService((int)$u['company_id']))->createPayment($u,$amount,$saleId,Util::text($b['order_info']??'',190)?:null);Response::ok(['payment'=>$r]);}
-    if($path==='/api/momo/ipn'&&$method==='POST'){$b=Request::body();try{MomoService::fromIpn($b)->processIpn($b);http_response_code(204);exit;}catch(Throwable $e){error_log('[LightBill MoMo IPN] '.$e->getMessage());http_response_code(400);exit;}}
-    if($path==='/api/momo/transactions'&&$method==='GET'){$u=Auth::requireUser('momo.read');Response::ok(['items'=>Util::rows('SELECT id,sale_id,order_id,request_id,amount,environment,result_code,message,trans_id,status,created_at,updated_at FROM momo_transactions WHERE company_id=? ORDER BY id DESC LIMIT 300',[(int)$u['company_id']])]);}
-    if($path==='/momo/return'&&$method==='GET'){header('Location: ' . rtrim(Env::get('APP_URL','/')??'/', '/') . '/?payment=return');exit;}
+    if($path==='/api/integrations'&&$method==='GET'){$u=Auth::requireUser('settings.read');$cid=(int)$u['company_id'];$zp=['environment'=>CompanySettings::get($cid,'zalopay.environment',Env::get('ZALOPAY_ENV','sandbox')),'app_id'=>CompanySettings::get($cid,'zalopay.app_id',Env::get('ZALOPAY_APP_ID','2554')),'key1_configured'=>(CompanySettings::get($cid,'zalopay.key1',Env::get('ZALOPAY_KEY1',''))??'')!=='','key2_configured'=>(CompanySettings::get($cid,'zalopay.key2',Env::get('ZALOPAY_KEY2',''))??'')!==''];$ei=(new MisaEInvoiceService($cid))->status();Response::ok(['zalopay'=>$zp,'einvoice'=>$ei]);}
+    if($path==='/api/integrations'&&$method==='POST'){$u=Auth::requireUser('settings.write');$cid=(int)$u['company_id'];$b=Request::body();$type=(string)($b['type']??'');if($type==='zalopay'){$env=in_array(($b['environment']??''),['sandbox','production'],true)?$b['environment']:'sandbox';CompanySettings::set($cid,'zalopay.environment',$env);if(isset($b['app_id'])&&trim((string)$b['app_id'])!=='')CompanySettings::set($cid,'zalopay.app_id',(string)(int)$b['app_id']);if(trim((string)($b['key1']??''))!=='')CompanySettings::set($cid,'zalopay.key1',(string)$b['key1'],true);if(trim((string)($b['key2']??''))!=='')CompanySettings::set($cid,'zalopay.key2',(string)$b['key2'],true);Auth::audit($cid,(int)$u['id'],'integration.update','integration','zalopay',['environment'=>$env]);Response::ok();}if($type==='einvoice'){$env=in_array(($b['environment']??''),['sandbox','production'],true)?$b['environment']:'sandbox';$signType=in_array((int)($b['sign_type']??2),[2,5],true)?(int)$b['sign_type']:2;CompanySettings::set($cid,'einvoice.provider','misa_meinvoice');CompanySettings::set($cid,'einvoice.environment',$env);foreach(['app_id','tax_code','username','inv_series'] as $k){if(array_key_exists($k,$b))CompanySettings::set($cid,'einvoice.misa.'.$k,Util::text($b[$k]??'',190));}if(trim((string)($b['password']??''))!=='')CompanySettings::set($cid,'einvoice.misa.password',(string)$b['password'],true);CompanySettings::set($cid,'einvoice.misa.sign_type',(string)$signType);Auth::audit($cid,(int)$u['id'],'integration.update','integration','misa_meinvoice',['environment'=>$env,'sign_type'=>$signType]);Response::ok();}Response::error('Loại tích hợp không hợp lệ',422);}
+    if($path==='/api/integrations/einvoice/test'&&$method==='POST'){$u=Auth::requireUser('settings.write');Response::ok((new MisaEInvoiceService((int)$u['company_id']))->testConnection());}
+
+    if($path==='/api/zalopay/create'&&$method==='POST'){$u=Auth::requireUser('zalopay.create');$b=Request::body();$amount=(int)($b['amount']??0);$saleId=!empty($b['sale_id'])?(int)$b['sale_id']:null;if($saleId){$sale=BusinessService::saleDetail((int)$u['company_id'],$saleId);if(!$sale)Response::error('Không tìm thấy đơn bán',404);$amount=(int)round((float)$sale['total_amount']-(float)$sale['paid_amount']);}$r=(new ZaloPayService((int)$u['company_id']))->createPayment($u,$amount,$saleId,Util::text($b['description']??'',250)?:null);Response::ok(['payment'=>$r]);}
+    if($path==='/api/zalopay/callback'&&$method==='POST'){$b=Request::body();try{ZaloPayService::fromCallback($b)->processCallback($b);Response::json(['return_code'=>1,'return_message'=>'Thành công']);}catch(Throwable $e){error_log('[LightBill ZaloPay Callback] '.$e->getMessage());Response::json(['return_code'=>2,'return_message'=>'Thất bại']);}}
+    if($path==='/api/zalopay/query'&&$method==='POST'){$u=Auth::requireUser('zalopay.read');$b=Request::body();$r=(new ZaloPayService((int)$u['company_id']))->queryAndSync((string)($b['app_trans_id']??''),(int)$u['id']);Response::ok(['payment'=>$r]);}
+    if($path==='/api/zalopay/transactions'&&$method==='GET'){$u=Auth::requireUser('zalopay.read');Response::ok(['items'=>Util::rows('SELECT id,sale_id,app_trans_id,amount,environment,return_code,return_message,zp_trans_id,order_url,status,created_at,updated_at FROM zalopay_transactions WHERE company_id=? ORDER BY id DESC LIMIT 300',[(int)$u['company_id']])]);}
+    if($path==='/zalopay/return'&&$method==='GET'){header('Location: ' . rtrim(Env::get('APP_URL','/')??'/', '/') . '/?payment=return');exit;}
 
     if($path==='/api/audit'&&$method==='GET'){$u=Auth::requireUser('audit.read');Response::ok(['items'=>Util::rows('SELECT a.*,u.full_name FROM audit_logs a LEFT JOIN users u ON u.id=a.user_id WHERE a.company_id=? ORDER BY a.id DESC LIMIT 500',[(int)$u['company_id']])]);}
 

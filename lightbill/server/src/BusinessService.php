@@ -24,14 +24,17 @@ final class BusinessService
                 $product=Util::row('SELECT * FROM products WHERE id=? AND company_id=? AND is_active=1 FOR UPDATE',[$productId,$companyId]);
                 if(!$product) throw new \InvalidArgumentException('Không tìm thấy sản phẩm');
                 $price=isset($line['unit_price'])?Util::money($line['unit_price']):Util::money($product['sale_price']);
+                $vatCategory=Util::text($line['vat_category']??($product['vat_category']??'taxable'),32);
+                if(!in_array($vatCategory,['taxable','non_taxable','not_subject','reduced','custom'],true)) $vatCategory='taxable';
                 $vat=isset($line['vat_rate']) && $line['vat_rate']!=='' ? (float)$line['vat_rate'] : (float)($product['vat_rate']??0);
+                if(in_array($vatCategory,['non_taxable','not_subject'],true)) $vat=0.0;
                 $discount=Util::money($line['discount_amount']??0);
                 $net=max(0, round($qty*$price-$discount,2)); $lineTax=round($net*$vat/100,2); $total=$net+$lineTax;
                 $stock=Util::row('SELECT qty,avg_cost FROM stock_balances WHERE company_id=? AND warehouse_id=? AND product_id=? FOR UPDATE',[$companyId,$warehouseId,$productId]);
                 $available=(float)($stock['qty']??0);
                 if((int)$product['track_stock']===1 && $available+0.0001<$qty) throw new \InvalidArgumentException('Tồn kho không đủ: '.$product['name']);
                 $cost=round($qty*(float)($stock['avg_cost']??$product['cost_price']),2);
-                $prepared[]=['product'=>$product,'qty'=>$qty,'price'=>$price,'vat'=>$vat,'discount'=>$discount,'net'=>$net,'tax'=>$lineTax,'total'=>$total,'cost'=>$cost];
+                $prepared[]=['product'=>$product,'qty'=>$qty,'price'=>$price,'vat'=>$vat,'vat_category'=>$vatCategory,'discount'=>$discount,'net'=>$net,'tax'=>$lineTax,'total'=>$total,'cost'=>$cost];
                 $subtotal+=$net; $tax+=$lineTax;
             }
             $subtotal=round($subtotal,2); $tax=round($tax,2); $total=round($subtotal+$tax,2);
@@ -42,8 +45,8 @@ final class BusinessService
             $saleId=(int)$pdo->lastInsertId();
             foreach($prepared as $p){
                 $prod=$p['product'];
-                $pdo->prepare('INSERT INTO sale_items(sale_id,product_id,sku,name,unit,quantity,unit_price,discount_amount,vat_rate,tax_amount,line_total,cost_amount) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
-                    ->execute([$saleId,(int)$prod['id'],$prod['sku'],$prod['name'],$prod['unit'],$p['qty'],$p['price'],$p['discount'],$p['vat'],$p['tax'],$p['total'],$p['cost']]);
+                $pdo->prepare('INSERT INTO sale_items(sale_id,product_id,sku,name,unit,quantity,unit_price,discount_amount,vat_rate,vat_category,tax_amount,line_total,cost_amount) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)')
+                    ->execute([$saleId,(int)$prod['id'],$prod['sku'],$prod['name'],$prod['unit'],$p['qty'],$p['price'],$p['discount'],$p['vat'],$p['vat_category'],$p['tax'],$p['total'],$p['cost']]);
                 if((int)$prod['track_stock']===1){
                     $pdo->prepare('INSERT INTO stock_balances(company_id,warehouse_id,product_id,qty,avg_cost) VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE qty=qty-VALUES(qty)')
                         ->execute([$companyId,$warehouseId,(int)$prod['id'],$p['qty'],(float)$prod['cost_price']]);
@@ -94,20 +97,18 @@ final class BusinessService
         $companyId=(int)$user['company_id'];$sale=self::saleDetail($companyId,$saleId);if(!$sale)Response::error('Không tìm thấy đơn bán',404);$customer=$sale['customer_id']?Util::row('SELECT * FROM customers WHERE id=? AND company_id=?',[(int)$sale['customer_id'],$companyId]):null;
         $pdo=DB::pdo();$pdo->beginTransaction();
         try{$pdo->prepare('INSERT INTO invoices(company_id,sale_id,invoice_type,form_no,symbol,invoice_no,invoice_date,buyer_name,buyer_tax_code,buyer_personal_id,buyer_address,buyer_email,subtotal,tax_amount,total_amount,status,payload_json,issued_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-            ->execute([$companyId,$saleId,Util::text($data['invoice_type']??'vat',32),Util::text($data['form_no']??'',32)?:null,Util::text($data['symbol']??'',32)?:null,Util::text($data['invoice_no']??'',64)?:null,Util::text($data['invoice_date']??'',25)?:Util::now(),$customer['name']??null,$customer['tax_code']??null,$customer['personal_id']??null,$customer['address']??null,$customer['email']??null,$sale['subtotal'],$sale['tax_amount'],$sale['total_amount'],'draft',json_encode(['legal_basis'=>['70/2025/ND-CP','32/2025/TT-BTC'],'source_sale'=>$saleId],JSON_UNESCAPED_UNICODE),(int)$user['id']]);$invoiceId=(int)$pdo->lastInsertId();$i=1;foreach($sale['items'] as $line){$pdo->prepare('INSERT INTO invoice_items(invoice_id,line_no,item_type,sku,name,unit,quantity,unit_price,vat_rate,tax_amount,line_total) VALUES(?,?,?,?,?,?,?,?,?,?,?)')->execute([$invoiceId,$i++,'goods',$line['sku'],$line['name'],$line['unit'],$line['quantity'],$line['unit_price'],$line['vat_rate'],$line['tax_amount'],$line['line_total']]);}$pdo->commit();Auth::audit($companyId,(int)$user['id'],'invoice.create','invoice',(string)$invoiceId,['sale_id'=>$saleId]);return self::invoiceDetail($companyId,$invoiceId);
+            ->execute([$companyId,$saleId,Util::text($data['invoice_type']??'vat',32),Util::text($data['form_no']??'',32)?:null,Util::text($data['symbol']??'',32)?:null,Util::text($data['invoice_no']??'',64)?:null,Util::text($data['invoice_date']??'',25)?:Util::now(),$customer['name']??null,$customer['tax_code']??null,$customer['personal_id']??null,$customer['address']??null,$customer['email']??null,$sale['subtotal'],$sale['tax_amount'],$sale['total_amount'],'draft',json_encode(['legal_basis'=>['254/2026/ND-CP','91/2026/TT-BTC'],'source_sale'=>$saleId],JSON_UNESCAPED_UNICODE),(int)$user['id']]);$invoiceId=(int)$pdo->lastInsertId();$i=1;foreach($sale['items'] as $line){$pdo->prepare('INSERT INTO invoice_items(invoice_id,line_no,item_type,sku,name,unit,quantity,unit_price,vat_rate,vat_category,tax_amount,line_total) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')->execute([$invoiceId,$i++,'goods',$line['sku'],$line['name'],$line['unit'],$line['quantity'],$line['unit_price'],$line['vat_rate'],$line['vat_category']??'taxable',$line['tax_amount'],$line['line_total']]);}$pdo->commit();Auth::audit($companyId,(int)$user['id'],'invoice.create','invoice',(string)$invoiceId,['sale_id'=>$saleId]);return self::invoiceDetail($companyId,$invoiceId);
         }catch(\Throwable $e){$pdo->rollBack();throw $e;}
     }
 
     public static function submitInvoice(array $user,int $invoiceId): array
     {
-        $companyId=(int)$user['company_id'];$invoice=self::invoiceDetail($companyId,$invoiceId);if(!$invoice)Response::error('Không tìm thấy hóa đơn',404);
-        $provider=CompanySettings::get($companyId,'einvoice.provider',Env::get('EINVOICE_PROVIDER',''));$url=CompanySettings::get($companyId,'einvoice.api_url',Env::get('EINVOICE_API_URL',''));$token=CompanySettings::get($companyId,'einvoice.api_token',Env::get('EINVOICE_API_TOKEN',''));
-        if(!$provider||!$url||!$token) Response::error('Chưa cấu hình nhà cung cấp hóa đơn điện tử',409);
-        $host=parse_url($url,PHP_URL_HOST);$allowed=array_filter(array_map('trim',explode(',',CompanySettings::get($companyId,'einvoice.allowed_hosts',Env::get('EINVOICE_ALLOWED_HOSTS',''))??'')));
-        if(parse_url($url,PHP_URL_SCHEME)!=='https'||!$host||($allowed&&!in_array($host,$allowed,true))) Response::error('Địa chỉ nhà cung cấp hóa đơn không hợp lệ',422);
-        $payload=['invoice'=>$invoice,'company'=>Util::row('SELECT name,tax_code,address,phone,email FROM companies WHERE id=?',[$companyId])];
-        $ch=curl_init($url);curl_setopt_array($ch,[CURLOPT_POST=>true,CURLOPT_RETURNTRANSFER=>true,CURLOPT_HTTPHEADER=>['Content-Type: application/json','Authorization: Bearer '.$token],CURLOPT_POSTFIELDS=>json_encode($payload,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES),CURLOPT_TIMEOUT=>45,CURLOPT_SSL_VERIFYPEER=>true,CURLOPT_SSL_VERIFYHOST=>2]);$raw=curl_exec($ch);$http=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);curl_close($ch);if($raw===false||$http<200||$http>=300)Response::error('Nhà cung cấp hóa đơn từ chối yêu cầu',502);
-        $resp=json_decode((string)$raw,true);if(!is_array($resp))$resp=['raw'=>(string)$raw];$status=in_array(($resp['status']??''),['accepted','issued','submitted'],true)?($resp['status']):'submitted';DB::pdo()->prepare('UPDATE invoices SET status=?,provider=?,provider_ref=?,tax_authority_code=?,response_json=? WHERE id=? AND company_id=?')->execute([$status,$provider,$resp['reference']??$resp['id']??null,$resp['taxAuthorityCode']??null,json_encode($resp,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES),$invoiceId,$companyId]);Auth::audit($companyId,(int)$user['id'],'invoice.submit','invoice',(string)$invoiceId,['provider'=>$provider,'status'=>$status]);return self::invoiceDetail($companyId,$invoiceId);
+        $companyId=(int)$user['company_id'];
+        $provider=strtolower(trim((string)CompanySettings::get($companyId,'einvoice.provider',Env::get('EINVOICE_PROVIDER','misa_meinvoice'))));
+        if($provider===''||$provider==='misa'||$provider==='misa_meinvoice'){
+            return (new MisaEInvoiceService($companyId))->submit($user,$invoiceId);
+        }
+        Response::error('Nhà cung cấp hóa đơn điện tử chưa được hỗ trợ',409);
     }
 
     public static function saleDetail(int $companyId,int $saleId): ?array

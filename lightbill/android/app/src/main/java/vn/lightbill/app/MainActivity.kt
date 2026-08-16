@@ -48,7 +48,7 @@ class MainActivity : AppCompatActivity() {
             allowContentAccess = false
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             setSupportZoom(false)
-            userAgentString = "$userAgentString LightBillAndroid/1.0"
+            userAgentString = "$userAgentString LightBillAndroid/2.0"
         }
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, false)
         if (WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {
@@ -60,7 +60,7 @@ class MainActivity : AppCompatActivity() {
                 val server = prefs.getString("server_url", "") ?: ""
                 val host = runCatching { Uri.parse(server).host }.getOrNull()
                 if (uri.scheme == "https" && uri.host == host) return false
-                if (uri.scheme == "momo" || uri.scheme == "https") {
+                if (uri.scheme == "zalopay" || uri.scheme == "zalo" || uri.scheme == "https") {
                     return try { startActivity(Intent(Intent.ACTION_VIEW, uri)); true }
                     catch (_: ActivityNotFoundException) { Toast.makeText(this@MainActivity, "Không mở được liên kết", Toast.LENGTH_SHORT).show(); true }
                 }

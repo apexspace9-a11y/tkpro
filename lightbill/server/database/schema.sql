@@ -1,6 +1,14 @@
 SET NAMES utf8mb4;
 SET time_zone = '+07:00';
 
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  version VARCHAR(32) PRIMARY KEY,
+  applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO schema_migrations(version) VALUES ('2.0.0');
+
+
 CREATE TABLE IF NOT EXISTS companies (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(190) NOT NULL,
@@ -233,6 +241,7 @@ CREATE TABLE IF NOT EXISTS sale_items (
   unit_price DECIMAL(18,2) NOT NULL,
   discount_amount DECIMAL(18,2) NOT NULL DEFAULT 0,
   vat_rate DECIMAL(5,2) NULL,
+  vat_category ENUM('taxable','non_taxable','not_subject','reduced','custom') NOT NULL DEFAULT 'taxable',
   tax_amount DECIMAL(18,2) NOT NULL DEFAULT 0,
   line_total DECIMAL(18,2) NOT NULL,
   cost_amount DECIMAL(18,2) NOT NULL DEFAULT 0,
@@ -283,7 +292,7 @@ CREATE TABLE IF NOT EXISTS payments (
   direction ENUM('in','out') NOT NULL,
   reference_type VARCHAR(32) NULL,
   reference_id BIGINT UNSIGNED NULL,
-  method ENUM('cash','bank','momo','card','other') NOT NULL DEFAULT 'cash',
+  method ENUM('cash','bank','zalopay','card','other') NOT NULL DEFAULT 'cash',
   amount DECIMAL(18,2) NOT NULL,
   transaction_ref VARCHAR(100) NULL,
   paid_at DATETIME NOT NULL,
@@ -296,29 +305,29 @@ CREATE TABLE IF NOT EXISTS payments (
   CONSTRAINT fk_payment_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS momo_transactions (
+CREATE TABLE IF NOT EXISTS zalopay_transactions (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   company_id BIGINT UNSIGNED NOT NULL,
   sale_id BIGINT UNSIGNED NULL,
-  order_id VARCHAR(100) NOT NULL,
-  request_id VARCHAR(100) NOT NULL,
+  app_trans_id VARCHAR(40) NOT NULL,
+  app_user VARCHAR(50) NOT NULL,
   amount BIGINT UNSIGNED NOT NULL,
   environment ENUM('sandbox','production') NOT NULL DEFAULT 'sandbox',
-  result_code INT NULL,
-  message VARCHAR(255) NULL,
-  trans_id VARCHAR(100) NULL,
-  pay_url TEXT NULL,
-  deeplink TEXT NULL,
-  qr_code_url TEXT NULL,
+  return_code INT NULL,
+  return_message VARCHAR(255) NULL,
+  zp_trans_id VARCHAR(100) NULL,
+  zp_trans_token TEXT NULL,
+  order_url TEXT NULL,
+  qr_code MEDIUMTEXT NULL,
   raw_response MEDIUMTEXT NULL,
   status ENUM('created','pending','paid','failed','cancelled') NOT NULL DEFAULT 'created',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_momo_order (company_id, order_id),
-  UNIQUE KEY uq_momo_request (company_id, request_id),
-  UNIQUE KEY uq_momo_trans (company_id, trans_id),
-  CONSTRAINT fk_momo_company FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
-  CONSTRAINT fk_momo_sale FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE SET NULL
+  UNIQUE KEY uq_zalopay_app_trans (company_id, app_trans_id),
+  UNIQUE KEY uq_zalopay_trans (company_id, zp_trans_id),
+  KEY idx_zalopay_status (company_id,status,created_at),
+  CONSTRAINT fk_zalopay_company FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
+  CONSTRAINT fk_zalopay_sale FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS chart_accounts (
@@ -382,6 +391,7 @@ CREATE TABLE IF NOT EXISTS invoices (
   tax_authority_code VARCHAR(100) NULL,
   provider VARCHAR(64) NULL,
   provider_ref VARCHAR(190) NULL,
+  provider_request_id CHAR(36) NULL,
   payload_json LONGTEXT NULL,
   response_json LONGTEXT NULL,
   issued_by BIGINT UNSIGNED NULL,
@@ -389,6 +399,7 @@ CREATE TABLE IF NOT EXISTS invoices (
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_invoice_no (company_id, symbol, invoice_no),
   KEY idx_invoice_date (company_id, invoice_date),
+  UNIQUE KEY uq_invoice_provider_request (company_id, provider_request_id),
   CONSTRAINT fk_invoice_company FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
   CONSTRAINT fk_invoice_sale FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE SET NULL,
   CONSTRAINT fk_invoice_user FOREIGN KEY (issued_by) REFERENCES users(id) ON DELETE SET NULL
@@ -405,9 +416,25 @@ CREATE TABLE IF NOT EXISTS invoice_items (
   quantity DECIMAL(18,3) NULL,
   unit_price DECIMAL(18,2) NULL,
   vat_rate DECIMAL(5,2) NULL,
+  vat_category ENUM('taxable','non_taxable','not_subject','reduced','custom') NOT NULL DEFAULT 'taxable',
   tax_amount DECIMAL(18,2) NOT NULL DEFAULT 0,
   line_total DECIMAL(18,2) NOT NULL DEFAULT 0,
   CONSTRAINT fk_invoice_item_invoice FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS integration_events (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  company_id BIGINT UNSIGNED NOT NULL,
+  provider VARCHAR(64) NOT NULL,
+  operation VARCHAR(64) NOT NULL,
+  entity_type VARCHAR(32) NULL,
+  entity_id VARCHAR(100) NULL,
+  success TINYINT(1) NOT NULL DEFAULT 0,
+  external_code VARCHAR(100) NULL,
+  metadata_json MEDIUMTEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_integration_event (company_id,provider,created_at),
+  CONSTRAINT fk_integration_event_company FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS tax_periods (

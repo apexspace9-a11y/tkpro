@@ -127,6 +127,19 @@ final class CompanySettings
         }
         return $value;
     }
+
+    public static function set(int $companyId, string $key, ?string $value, bool $secret = false): void
+    {
+        if ($companyId <= 0 || !preg_match('/^[a-z0-9._-]{2,100}$/i', $key)) {
+            throw new \InvalidArgumentException('Cấu hình không hợp lệ');
+        }
+        $stored = (string)($value ?? '');
+        if ($secret && $stored !== '') {
+            $stored = Crypto::encrypt($stored);
+        }
+        DB::pdo()->prepare('INSERT INTO settings(company_id,setting_key,setting_value,is_secret) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value),is_secret=VALUES(is_secret)')
+            ->execute([$companyId, $key, $stored, $secret ? 1 : 0]);
+    }
 }
 
 final class Response
@@ -188,10 +201,10 @@ final class Auth
     {
         $map = [
             'owner' => ['*'],
-            'admin' => ['dashboard','catalog.*','inventory.*','sales.*','purchases.*','customers.*','suppliers.*','payments.*','invoices.*','accounting.*','tax.*','reports.*','users.*','settings.*','momo.*','audit.read'],
-            'accountant' => ['dashboard','catalog.read','inventory.read','sales.read','purchases.read','customers.read','suppliers.read','payments.*','invoices.*','accounting.*','tax.*','reports.*','momo.read'],
+            'admin' => ['dashboard','catalog.*','inventory.*','sales.*','purchases.*','customers.*','suppliers.*','payments.*','invoices.*','accounting.*','tax.*','reports.*','users.*','settings.*','zalopay.*','audit.read'],
+            'accountant' => ['dashboard','catalog.read','inventory.read','sales.read','purchases.read','customers.read','suppliers.read','payments.*','invoices.*','accounting.*','tax.*','reports.*','zalopay.read'],
             'warehouse' => ['dashboard','catalog.*','inventory.*','purchases.*','sales.read','customers.read','suppliers.read','reports.inventory'],
-            'cashier' => ['dashboard','catalog.read','inventory.read','sales.*','customers.*','payments.create','invoices.create','invoices.read','momo.*'],
+            'cashier' => ['dashboard','catalog.read','inventory.read','sales.*','customers.*','payments.create','invoices.create','invoices.read','zalopay.*'],
             'viewer' => ['dashboard','catalog.read','inventory.read','sales.read','purchases.read','customers.read','suppliers.read','invoices.read','reports.read'],
         ];
         return $map[$role] ?? [];
@@ -278,9 +291,54 @@ final class Util
 {
     public static function money(mixed $v): float { return round((float) $v, 2); }
     public static function qty(mixed $v): float { return round((float) $v, 3); }
-    public static function text(mixed $v, int $max = 255): string { return mb_substr(trim((string) $v), 0, $max); }
+    public static function text(mixed $v, int $max = 255): string { $v=trim((string)$v); return function_exists('mb_substr') ? mb_substr($v,0,$max) : substr($v,0,$max); }
     public static function now(): string { return date('Y-m-d H:i:s'); }
     public static function code(string $prefix): string { return $prefix . date('YmdHis') . strtoupper(bin2hex(random_bytes(2))); }
+    public static function uuid4(): string
+    {
+        $d = random_bytes(16);
+        $d[6] = chr((ord($d[6]) & 0x0f) | 0x40);
+        $d[8] = chr((ord($d[8]) & 0x3f) | 0x80);
+        $h = bin2hex($d);
+        return substr($h,0,8).'-'.substr($h,8,4).'-'.substr($h,12,4).'-'.substr($h,16,4).'-'.substr($h,20);
+    }
+
+    public static function moneyToWords(float|int $amount): string
+    {
+        $n = (int)round((float)$amount);
+        if ($n < 0) return 'Âm ' . lcfirst(self::moneyToWords(-$n));
+        if ($n === 0) return 'Không đồng.';
+        $units = ['', 'nghìn', 'triệu', 'tỷ', 'nghìn tỷ', 'triệu tỷ'];
+        $groups = [];
+        while ($n > 0) { $groups[] = $n % 1000; $n = intdiv($n, 1000); }
+        $parts = [];
+        for ($i=count($groups)-1; $i>=0; $i--) {
+            if ($groups[$i] === 0) continue;
+            $full = $i < count($groups)-1 && $groups[$i] < 100;
+            $chunk = self::readThreeDigits($groups[$i], $full);
+            if ($units[$i] ?? '') $chunk .= ' ' . $units[$i];
+            $parts[] = $chunk;
+        }
+        $text = implode(' ', $parts) . ' đồng.';
+        return ucfirst($text);
+    }
+
+    private static function readThreeDigits(int $n, bool $full = false): string
+    {
+        $digit = ['không','một','hai','ba','bốn','năm','sáu','bảy','tám','chín'];
+        $hundreds = intdiv($n,100); $tens = intdiv($n%100,10); $ones=$n%10; $out=[];
+        if ($hundreds > 0 || $full) { $out[]=$digit[$hundreds]; $out[]='trăm'; }
+        if ($tens > 1) { $out[]=$digit[$tens]; $out[]='mươi'; }
+        elseif ($tens === 1) { $out[]='mười'; }
+        elseif ($ones > 0 && ($hundreds > 0 || $full)) { $out[]='lẻ'; }
+        if ($ones > 0) {
+            if ($ones === 1 && $tens > 1) $out[]='mốt';
+            elseif ($ones === 5 && $tens > 0) $out[]='lăm';
+            elseif ($ones === 4 && $tens > 1) $out[]='tư';
+            else $out[]=$digit[$ones];
+        }
+        return implode(' ', $out);
+    }
 
     public static function rows(string $sql, array $params = []): array
     {

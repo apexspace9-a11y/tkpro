@@ -1,6 +1,6 @@
 {
   "name": "lightbill-windows",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "LightBill Windows client",
   "main": "main.js",
   "author": "LightBill",
@@ -20,6 +20,6 @@
     "files": ["main.js", "preload.js", "renderer/**/*"],
     "directories": {"output": "dist"},
     "win": {"target": ["nsis", "portable"], "artifactName": "LightBill-${version}-${arch}.${ext}"},
-    "nsis": {"oneClick": false, "allowToChangeInstallationDirectory": true}
+    "nsis": {"oneClick": true, "allowToChangeInstallationDirectory": false}
   }
 }
